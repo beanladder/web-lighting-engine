@@ -11,13 +11,17 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
+    "@react-three/fiber": "^9.7.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.1.1",
+    "@webgpu/types": "^0.1.72",
     "typescript": "~5.9.3",
     "vite": "^8.2.2"
   }
