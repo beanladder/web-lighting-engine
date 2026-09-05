@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { Canvas, useThree } from '@react-three/fiber';
-
-export type RendererBackend = 'WebGPU' | 'WebGL2';
+import { useEngine } from '../state/store';
 
 const BACKGROUND = new THREE.Color('#0d0f12');
 
@@ -29,17 +28,16 @@ async function webGPUAvailable(timeoutMs = 4000): Promise<boolean> {
   }
 }
 
-/** Reads which backend the renderer actually landed on, once. */
-function BackendReporter({ onBackend }: { onBackend: (backend: RendererBackend) => void }) {
+/** Reads which backend the renderer actually landed on, once, into the store. */
+function BackendReporter() {
   const gl = useThree((s) => s.gl) as unknown as WebGPURenderer & {
     backend?: { isWebGPUBackend?: boolean };
   };
-  onBackend(gl.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2');
+  const setRendererBackend = useEngine((s) => s.setRendererBackend);
+  useEffect(() => {
+    setRendererBackend(gl.backend?.isWebGPUBackend ? 'WebGPU' : 'WebGL2');
+  }, [gl, setRendererBackend]);
   return null;
-}
-
-interface ViewportProps {
-  onBackend: (backend: RendererBackend) => void;
 }
 
 /**
@@ -48,12 +46,12 @@ interface ViewportProps {
  * actual content arrive in later commits; this one only has to prove the
  * renderer initializes and reports which backend it landed on.
  */
-export default function Viewport({ onBackend }: ViewportProps) {
+export default function Viewport() {
   const [status, setStatus] = useState<'init' | 'ready' | 'failed'>('init');
   const [error, setError] = useState<string | null>(null);
 
   return (
-    <div className="viewport">
+    <div className="stage__canvas">
       <Canvas
         dpr={[1, 2]}
         camera={{ position: [4, 3, 5], fov: 45, near: 0.05, far: 1000 }}
@@ -77,7 +75,7 @@ export default function Viewport({ onBackend }: ViewportProps) {
           }
         }}
       >
-        <BackendReporter onBackend={onBackend} />
+        <BackendReporter />
         <color attach="background" args={[BACKGROUND]} />
       </Canvas>
 
