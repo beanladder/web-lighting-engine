@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { Canvas, useThree } from '@react-three/fiber';
+import SceneContents from './SceneContents';
 import { useEngine } from '../state/store';
-
-const BACKGROUND = new THREE.Color('#0d0f12');
 
 /**
  * Ask for a WebGPU adapter, but do not wait forever.
@@ -42,13 +40,15 @@ function BackendReporter() {
 
 /**
  * Boots three.js' WebGPURenderer inside an R3F Canvas, falling back to WebGL2
- * automatically. The scene itself is intentionally empty here — grid, sky and
- * actual content arrive in later commits; this one only has to prove the
- * renderer initializes and reports which backend it landed on.
+ * automatically. Real model import lands in the next commit — for now the
+ * only thing to load is the demo scene, offered as a hint once the renderer
+ * is up and nothing's in the scene yet.
  */
 export default function Viewport() {
   const [status, setStatus] = useState<'init' | 'ready' | 'failed'>('init');
   const [error, setError] = useState<string | null>(null);
+  const sceneName = useEngine((s) => s.sceneName);
+  const loadDemoScene = useEngine((s) => s.loadDemoScene);
 
   return (
     <div className="stage__canvas">
@@ -76,7 +76,7 @@ export default function Viewport() {
         }}
       >
         <BackendReporter />
-        <color attach="background" args={[BACKGROUND]} />
+        <SceneContents />
       </Canvas>
 
       {status === 'init' ? (
@@ -93,6 +93,18 @@ export default function Viewport() {
             {error}
             <br />
             This build needs WebGPU or WebGL2. Try a current Chrome, Edge or Safari.
+          </div>
+        </div>
+      ) : null}
+
+      {status === 'ready' && !sceneName ? (
+        <div className="overlay overlay--hint">
+          <strong>Nothing in the scene yet</strong>
+          <div>Real model import lands in an upcoming commit — for now, try the demo scene.</div>
+          <div className="overlay__actions">
+            <button className="btn" type="button" onClick={loadDemoScene}>
+              Load demo scene
+            </button>
           </div>
         </div>
       ) : null}

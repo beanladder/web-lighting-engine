@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import * as THREE from 'three';
+import { buildDemoScene } from '../core/loaders';
 import type { RendererBackend, TransformMode } from './types';
 
 /**
@@ -20,6 +22,17 @@ interface EngineState {
   showHelpers: boolean;
   showGizmo: boolean;
   setView: (patch: Partial<Pick<EngineState, 'showGrid' | 'showHelpers' | 'showGizmo'>>) => void;
+
+  /**
+   * Whatever's currently in the viewport. Just the demo scene for now — real
+   * imported models (and the mesh list that comes with them) land in the next
+   * commit, which is also when this outgrows a single Group reference.
+   */
+  sceneGroup: THREE.Group | null;
+  sceneName: string | null;
+  /** Bounding-sphere radius of `sceneGroup`, used to size the grid and frame the camera. */
+  sceneRadius: number;
+  loadDemoScene: () => void;
 }
 
 export const useEngine = create<EngineState>((set) => ({
@@ -33,4 +46,15 @@ export const useEngine = create<EngineState>((set) => ({
   showHelpers: true,
   showGizmo: true,
   setView: (patch) => set(patch),
+
+  sceneGroup: null,
+  sceneName: null,
+  sceneRadius: 5,
+  loadDemoScene: () => {
+    const group = buildDemoScene();
+    group.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(group);
+    const radius = box.isEmpty() ? 5 : box.getBoundingSphere(new THREE.Sphere()).radius;
+    set({ sceneGroup: group, sceneName: group.name, sceneRadius: Math.max(radius, 0.5) });
+  },
 }));
