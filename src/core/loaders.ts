@@ -1,11 +1,6 @@
 import * as THREE from 'three';
 
-/**
- * Model loading. For now it's just the demo scene — real importers (GLTF,
- * OBJ, FBX, STL, PLY) land in the next commit.
- */
-
-/** A small stand-in scene, so the editor is usable before importing anything. */
+/** Builds a small stand-in scene for the demo. */
 export function buildDemoScene(): THREE.Group {
   const group = new THREE.Group();
   group.name = 'Demo Scene';

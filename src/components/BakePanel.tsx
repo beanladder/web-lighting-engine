@@ -1,7 +1,4 @@
-/**
- * Bake controls and progress. Just a locked slab for now — resolution,
- * samples, progress and the log all arrive with the bake pipeline itself.
- */
+/** Bake controls and progress. */
 export default function BakePanel() {
   return (
     <div className="bakebar">

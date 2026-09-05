@@ -1,11 +1,8 @@
 import { useEngine } from '../state/store';
 
-/**
- * Scene tree. Still no per-mesh listing — that lands with model import — but
- * it now at least knows whether something's loaded.
- */
+/** Scene tree. */
 export default function Hierarchy() {
-  const sceneName = useEngine((s) => s.sceneName);
+  const sceneName = useEngine((s) => s.sceneName); // Name of the currently loaded scene, if any
 
   return (
     <div className="panel panel--left">

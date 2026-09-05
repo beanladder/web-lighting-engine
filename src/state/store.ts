@@ -3,35 +3,22 @@ import * as THREE from 'three';
 import { buildDemoScene } from '../core/loaders';
 import type { RendererBackend, TransformMode } from './types';
 
-/**
- * The editor's global state. Deliberately small right now — it grows one
- * slice at a time as each feature (lights, model import, baking, ...) lands,
- * instead of being speculatively fleshed out ahead of the code that needs it.
- */
+/** The editor's global state. */
 interface EngineState {
-  /** Reported once the WebGPURenderer finishes initializing (or falls back). */
-  rendererBackend: RendererBackend | null;
+  rendererBackend: RendererBackend | null; // Backend the WebGPURenderer landed on, once initialized
   setRendererBackend: (backend: RendererBackend) => void;
 
-  /** Gizmo mode for the transform controls a later commit wires up. */
-  transformMode: TransformMode;
+  transformMode: TransformMode; // Gizmo mode for the transform controls
   setTransformMode: (mode: TransformMode) => void;
 
-  /** Viewport toggles. Inert until the grid/handles/gizmo they control exist. */
-  showGrid: boolean;
-  showHelpers: boolean;
-  showGizmo: boolean;
+  showGrid: boolean; // Whether the grid helper is visible
+  showHelpers: boolean; // Whether light handles are visible
+  showGizmo: boolean; // Whether the transform gizmo is visible
   setView: (patch: Partial<Pick<EngineState, 'showGrid' | 'showHelpers' | 'showGizmo'>>) => void;
 
-  /**
-   * Whatever's currently in the viewport. Just the demo scene for now — real
-   * imported models (and the mesh list that comes with them) land in the next
-   * commit, which is also when this outgrows a single Group reference.
-   */
-  sceneGroup: THREE.Group | null;
-  sceneName: string | null;
-  /** Bounding-sphere radius of `sceneGroup`, used to size the grid and frame the camera. */
-  sceneRadius: number;
+  sceneGroup: THREE.Group | null; // Whatever's currently in the viewport
+  sceneName: string | null; // Name of the currently loaded scene
+  sceneRadius: number; // Bounding-sphere radius of sceneGroup, used to size the grid and frame the camera
   loadDemoScene: () => void;
 }
 

@@ -1,7 +1,4 @@
-/**
- * Property editor for whatever is selected. Empty for now — selection itself
- * doesn't exist until lights (and later, meshes) do.
- */
+/** Property editor for whatever is selected. */
 export default function Inspector() {
   return (
     <div className="panel panel--right">

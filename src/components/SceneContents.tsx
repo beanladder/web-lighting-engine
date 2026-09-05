@@ -6,7 +6,7 @@ import { useEngine } from '../state/store';
 
 /** Everything that lives inside the R3F canvas. */
 
-const noRaycast = () => undefined;
+const noRaycast = () => undefined; // Disables raycasting for the grid helper
 
 /** Vertical gradient used as the visible sky. */
 function useSkyTexture() {
@@ -85,11 +85,7 @@ export default function SceneContents() {
     <>
       <Background />
 
-      {/*
-       * Temporary flat lighting so the demo scene's MeshStandardMaterial
-       * primitives aren't pitch black. Replaced by the authored lighting rig
-       * (directional/point/spot/area lights) in an upcoming commit.
-       */}
+      {/* Temporary flat lighting for the demo scene */}
       <hemisphereLight color="#8fb4ff" groundColor="#2a2622" intensity={0.9} />
 
       {sceneGroup ? <primitive object={sceneGroup} /> : null}

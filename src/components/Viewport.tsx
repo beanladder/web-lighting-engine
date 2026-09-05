@@ -4,15 +4,7 @@ import { Canvas, useThree } from '@react-three/fiber';
 import SceneContents from './SceneContents';
 import { useEngine } from '../state/store';
 
-/**
- * Ask for a WebGPU adapter, but do not wait forever.
- *
- * `requestAdapter()` rejects outright on a machine with no WebGPU at all, but
- * on a flaky or blocklisted driver it can simply never settle — and three's
- * own fallback never fires, because nothing ever threw. Racing it against a
- * timeout means the worst case is a couple of seconds on WebGL2 rather than a
- * spinner forever.
- */
+/** Requests a WebGPU adapter, racing it against a timeout so a hung driver falls back instead of hanging forever. */
 async function webGPUAvailable(timeoutMs = 4000): Promise<boolean> {
   if (typeof navigator === 'undefined' || !('gpu' in navigator) || !navigator.gpu) return false;
   try {
@@ -38,17 +30,12 @@ function BackendReporter() {
   return null;
 }
 
-/**
- * Boots three.js' WebGPURenderer inside an R3F Canvas, falling back to WebGL2
- * automatically. Real model import lands in the next commit — for now the
- * only thing to load is the demo scene, offered as a hint once the renderer
- * is up and nothing's in the scene yet.
- */
+/** Boots three.js' WebGPURenderer inside an R3F Canvas, falling back to WebGL2 automatically. */
 export default function Viewport() {
-  const [status, setStatus] = useState<'init' | 'ready' | 'failed'>('init');
-  const [error, setError] = useState<string | null>(null);
-  const sceneName = useEngine((s) => s.sceneName);
-  const loadDemoScene = useEngine((s) => s.loadDemoScene);
+  const [status, setStatus] = useState<'init' | 'ready' | 'failed'>('init'); // Renderer startup status
+  const [error, setError] = useState<string | null>(null); // Renderer init error message, if any
+  const sceneName = useEngine((s) => s.sceneName); // Name of the currently loaded scene, if any
+  const loadDemoScene = useEngine((s) => s.loadDemoScene); // Loads the placeholder demo scene
 
   return (
     <div className="stage__canvas">
