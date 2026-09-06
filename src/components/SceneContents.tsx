@@ -156,8 +156,15 @@ function LightHandle({
         </lineSegments>
       ) : null}
 
+      {/*
+       * ConeGeometry's narrow tip sits at local +Y, base at -Y. Rotating by
+       * +90° around X (not -90°) is what actually puts the tip at the origin
+       * (the bulb) and flares the wide end out along -Z, matching where the
+       * light really falls — the other sign draws a funnel narrowing into
+       * the distance instead of a beam widening away from the source.
+       */}
       {light.type === 'spot' ? (
-        <mesh position={[0, 0, -coneLength / 2]} rotation={[-Math.PI / 2, 0, 0]} raycast={noRaycast}>
+        <mesh position={[0, 0, -coneLength / 2]} rotation={[Math.PI / 2, 0, 0]} raycast={noRaycast}>
           <coneGeometry args={[Math.tan(light.angle) * coneLength, coneLength, 28, 1, true]} />
           <meshBasicMaterial
             color={color}

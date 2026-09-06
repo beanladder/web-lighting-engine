@@ -33,7 +33,10 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 
 /**
  * A numeric input that keeps its own draft text while focused, so partial
- * values like "-" or "0." don't get clobbered mid-keystroke.
+ * values like "-" or "0." don't get clobbered mid-keystroke. Also doubles as
+ * a Blender-style scrubber: click-drag left/right to change the value
+ * directly, without ever needing to type. A plain click (no drag) still
+ * focuses it for typing, same as any text input.
  */
 export function NumberInput({
   value,
@@ -52,20 +55,31 @@ export function NumberInput({
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const display = draft ?? formatNumber(value, precision);
+  const clamp = (next: number) => {
+    if (min !== undefined) next = Math.max(min, next);
+    if (max !== undefined) next = Math.min(max, next);
+    return next;
+  };
 
   const commit = (text: string) => {
     setDraft(null);
     const parsed = Number.parseFloat(text);
     if (Number.isNaN(parsed)) return;
-    let next = parsed;
-    if (min !== undefined) next = Math.max(min, next);
-    if (max !== undefined) next = Math.min(max, next);
-    onChange(next);
+    onChange(clamp(parsed));
   };
+
+  // Drag state lives in a ref, not React state — every pixel of mouse
+  // movement would otherwise be a re-render.
+  const drag = useRef<{ pointerId: number; startX: number; startValue: number; dragged: boolean } | null>(
+    null,
+  );
+  // Pixels of horizontal movement per `step` of value change. Shift for a
+  // tenth of that — Blender's fine-control convention.
+  const PIXELS_PER_STEP = 4;
 
   return (
     <input
-      className="input input--number"
+      className="input input--number input--scrub"
       type="text"
       inputMode="decimal"
       value={display}
@@ -84,6 +98,34 @@ export function NumberInput({
           const delta = (event.key === 'ArrowUp' ? 1 : -1) * step * (event.shiftKey ? 10 : 1);
           commit(String(value + delta));
         }
+      }}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        // Left as a normal click/focus for now — only becomes a scrub once
+        // the pointer actually moves past the threshold below.
+        drag.current = { pointerId: event.pointerId, startX: event.clientX, startValue: value, dragged: false };
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }}
+      onPointerMove={(event) => {
+        const state = drag.current;
+        if (!state || state.pointerId !== event.pointerId) return;
+        const deltaX = event.clientX - state.startX;
+        if (!state.dragged && Math.abs(deltaX) < 3) return;
+        if (!state.dragged) {
+          state.dragged = true;
+          setDraft(null);
+          (event.target as HTMLInputElement).blur(); // drop the text caret while scrubbing
+        }
+        const sensitivity = event.shiftKey ? 0.1 : 1;
+        const steps = (deltaX / PIXELS_PER_STEP) * sensitivity;
+        onChange(clamp(state.startValue + steps * step));
+      }}
+      onPointerUp={(event) => {
+        const state = drag.current;
+        if (state?.pointerId === event.pointerId) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        drag.current = null;
       }}
     />
   );
