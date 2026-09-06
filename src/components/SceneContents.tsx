@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import { OrbitControls, TransformControls } from '@react-three/drei';
 import { runtime, useEngine } from '../state/store';
-import type { LightDef } from '../state/types';
+import type { LightDef, Vec3 } from '../state/types';
 
 /** Everything that lives inside the R3F canvas. */
 
@@ -200,6 +200,48 @@ function LightHandle({
   );
 }
 
+/**
+ * The point a light is aiming at, shown as a small diamond connected to the
+ * light by a line. Its own selectable, draggable object — moving it (or the
+ * light) recomputes the light's rotation via the store's look-at logic.
+ */
+function TargetHandle({ light, target }: { light: LightDef; target: Vec3 }) {
+  const selection = useEngine((s) => s.selection);
+  const select = useEngine((s) => s.select);
+  const selected = selection?.kind === 'light-target' && selection.id === light.id;
+
+  const linePoints = useMemo(
+    () => new Float32Array([...light.position, ...target]),
+    [light.position, target],
+  );
+  const color = useMemo(
+    () => new THREE.Color(selected ? '#ffb454' : light.color),
+    [selected, light.color],
+  );
+
+  return (
+    <>
+      <lineSegments raycast={noRaycast}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[linePoints, 3]} />
+        </bufferGeometry>
+        <lineBasicMaterial color={color} toneMapped={false} transparent opacity={0.5} />
+      </lineSegments>
+      <group name={'light-target:' + light.id} position={target}>
+        <mesh
+          onClick={(event: ThreeEvent<MouseEvent>) => {
+            event.stopPropagation();
+            select({ kind: 'light-target', id: light.id });
+          }}
+        >
+          <octahedronGeometry args={[0.14, 0]} />
+          <meshBasicMaterial color={color} wireframe toneMapped={false} depthTest={!selected} />
+        </mesh>
+      </group>
+    </>
+  );
+}
+
 /** One authored light: the three.js light itself plus its handle. */
 function LightObject({ light, selected }: { light: LightDef; selected: boolean }) {
   const group = useRef<THREE.Group>(null);
@@ -234,8 +276,9 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
   };
 
   return (
-    <group ref={group} name={'light:' + light.id}>
-      <primitive object={target} />
+    <>
+      <group ref={group} name={'light:' + light.id}>
+        <primitive object={target} />
 
       {light.enabled && light.type === 'directional' ? (
         <directionalLight
@@ -302,6 +345,8 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
 
       {showHelpers ? <LightHandle light={light} selected={selected} onSelect={onSelect} /> : null}
     </group>
+    {showHelpers && light.target ? <TargetHandle light={light} target={light.target} /> : null}
+    </>
   );
 }
 
@@ -337,13 +382,19 @@ function Gizmo() {
       setAttached(null);
       return;
     }
-    setAttached(scene.getObjectByName('light:' + selection.id) ?? null);
+    const name =
+      selection.kind === 'light-target' ? 'light-target:' + selection.id : 'light:' + selection.id;
+    setAttached(scene.getObjectByName(name) ?? null);
   }, [selection, showGizmo, scene, lights.length]);
 
   if (!attached || !selection) return null;
 
-  // Scaling a light means nothing; fall back to moving it.
-  const gizmoMode = mode === 'scale' ? 'translate' : mode;
+  const selectedLight = lights.find((l) => l.id === selection.id);
+  // A target point only ever moves. A light that's aiming at one is also
+  // locked to translate — rotating it would have no visible effect, since
+  // the target overrides its aim on the very next update.
+  const lockedToTranslate = selection.kind === 'light-target' || !!selectedLight?.target;
+  const gizmoMode = lockedToTranslate ? 'translate' : mode === 'scale' ? 'translate' : mode;
 
   return (
     <TransformControls
@@ -351,6 +402,12 @@ function Gizmo() {
       mode={gizmoMode}
       size={0.8}
       onObjectChange={() => {
+        if (selection.kind === 'light-target') {
+          updateLight(selection.id, {
+            target: [attached.position.x, attached.position.y, attached.position.z],
+          });
+          return;
+        }
         updateLight(selection.id, {
           position: [attached.position.x, attached.position.y, attached.position.z],
           rotation: [attached.rotation.x, attached.rotation.y, attached.rotation.z],
@@ -360,10 +417,80 @@ function Gizmo() {
   );
 }
 
+/**
+ * Handles "click anywhere to place the target" mode: while armed, a click on
+ * the model (or an invisible ground plane, so empty space still works) moves
+ * that light's target to the hit point. Runs as a raw DOM listener rather
+ * than R3F's per-mesh onClick, so it can hit-test the model and a synthetic
+ * ground plane through one raycaster call without needing either to opt in.
+ */
+function TargetPicker() {
+  const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
+  const setPickingTarget = useEngine((s) => s.setPickingTarget);
+  const updateLight = useEngine((s) => s.updateLight);
+  const select = useEngine((s) => s.select);
+  const gl = useThree((s) => s.gl);
+  const camera = useThree((s) => s.camera);
+  const raycaster = useThree((s) => s.raycaster);
+
+  // Invisible, never added to the scene — three.js raycasts against an
+  // object's own geometry regardless of `.visible`, so this only needs a
+  // correct matrixWorld, not a mount.
+  const groundPlane = useMemo(() => {
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000));
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.updateMatrixWorld(true);
+    return mesh;
+  }, []);
+
+  useEffect(() => {
+    if (!pickingTargetFor) return;
+    const canvas = gl.domElement;
+    const lightId = pickingTargetFor;
+
+    const pick = (event: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const candidates: THREE.Object3D[] = runtime.model ? [runtime.model, groundPlane] : [groundPlane];
+      const hits = raycaster.intersectObjects(candidates, true);
+      if (hits.length) {
+        const point = hits[0].point;
+        updateLight(lightId, { target: [point.x, point.y, point.z] });
+        select({ kind: 'light-target', id: lightId });
+      }
+      setPickingTarget(null);
+
+      // The browser synthesizes a 'click' right after this pointerdown's
+      // matching pointerup, and the target now sits exactly under the
+      // cursor — if R3F's own click raycasting also processes it, it could
+      // (depending on render timing) either re-select the same target
+      // harmlessly, or, if its handle mesh hasn't mounted yet, find nothing
+      // and fire onPointerMissed, clearing the selection just made above.
+      // A one-shot capture-phase listener added right here — rather than
+      // tied to this effect's cleanup, which is itself timing-dependent on
+      // React's own render — swallows exactly that one click regardless of
+      // how fast the re-render lands.
+      const swallowClick = (event: Event) => event.stopPropagation();
+      canvas.addEventListener('click', swallowClick, { capture: true, once: true });
+    };
+
+    canvas.addEventListener('pointerdown', pick, { capture: true });
+    // Escape is handled centrally in App.tsx, alongside every other shortcut.
+    return () => canvas.removeEventListener('pointerdown', pick, { capture: true });
+  }, [pickingTargetFor, gl, camera, raycaster, groundPlane, updateLight, setPickingTarget, select]);
+
+  return null;
+}
+
 export default function SceneContents() {
   const showGrid = useEngine((s) => s.showGrid);
   const sceneRadius = useEngine((s) => s.sceneRadius);
   const modelVersion = useEngine((s) => s.modelVersion);
+  const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
   const gridSize = Math.max(Math.ceil(sceneRadius * 2) * 2, 10);
 
   return (
@@ -372,6 +499,7 @@ export default function SceneContents() {
 
       <LightRig />
       <Gizmo />
+      <TargetPicker />
 
       <ModelRoot modelVersion={modelVersion} />
 
@@ -385,7 +513,13 @@ export default function SceneContents() {
         />
       ) : null}
 
-      <OrbitControls makeDefault enableDamping dampingFactor={0.08} maxDistance={2000} />
+      <OrbitControls
+        makeDefault
+        enabled={!pickingTargetFor}
+        enableDamping
+        dampingFactor={0.08}
+        maxDistance={2000}
+      />
     </>
   );
 }

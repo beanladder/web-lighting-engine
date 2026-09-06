@@ -46,6 +46,7 @@ export default function Viewport() {
 
   const modelName = useEngine((s) => s.modelName);
   const busy = useEngine((s) => s.busy);
+  const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
 
   const handleFiles = useCallback((files: File[]) => {
     void importFiles(files).catch(() => undefined);
@@ -54,6 +55,7 @@ export default function Viewport() {
   return (
     <div
       className="stage__canvas"
+      style={pickingTargetFor ? { cursor: 'crosshair' } : undefined}
       onDragEnter={(event) => {
         event.preventDefault();
         dragDepth.current++;
@@ -125,7 +127,14 @@ export default function Viewport() {
         </div>
       ) : null}
 
-      {status === 'ready' && !busy && !modelName ? (
+      {pickingTargetFor ? (
+        <div className="overlay overlay--hint">
+          <strong>Click anywhere to place the target</strong>
+          <div>The model, or the ground if you miss it — Esc to cancel</div>
+        </div>
+      ) : null}
+
+      {status === 'ready' && !busy && !modelName && !pickingTargetFor ? (
         <div className="overlay overlay--hint">
           <strong>Drop a model to start</strong>
           <div>.glb .gltf .fbx .obj .stl .ply — textures and .bin can come along too</div>

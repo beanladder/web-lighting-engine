@@ -29,8 +29,15 @@ export interface LightDef {
   enabled: boolean;
 
   position: Vec3;
-  /** Euler XYZ in radians. Emission direction is -Z rotated by this. */
+  /** Euler XYZ in radians. Emission direction is -Z rotated by this. Ignored (and kept in sync instead) while `target` is set. */
   rotation: Vec3;
+  /**
+   * directional / spot only: an absolute world point to aim at instead of
+   * hand-rotating. When set, `rotation` is recomputed automatically (a
+   * look-at) whenever this or `position` changes, so everything downstream
+   * that already consumes `rotation` keeps working unchanged.
+   */
+  target: Vec3 | null;
 
   color: string;
   intensity: number;
@@ -53,5 +60,9 @@ export interface LightDef {
   height: number;
 }
 
-/** What's selected in the viewport/hierarchy. Meshes join lights once mesh selection lands. */
-export type Selection = { kind: 'light'; id: string } | null;
+/**
+ * What's selected in the viewport/hierarchy. A light-target is its own kind
+ * (rather than folded into 'light') since it's a separate draggable point in
+ * space, addressed by the same light's id. Meshes join once mesh selection lands.
+ */
+export type Selection = { kind: 'light' | 'light-target'; id: string } | null;

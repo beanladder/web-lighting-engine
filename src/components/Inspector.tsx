@@ -8,7 +8,9 @@ const RAD = 180 / Math.PI;
 export default function Inspector() {
   const selection = useEngine((s) => s.selection);
   const lights = useEngine((s) => s.lights);
-  const light = selection?.kind === 'light' ? lights.find((l) => l.id === selection.id) : undefined;
+  // Selecting a light's target still shows that light's inspector — you want
+  // to see (and edit) its numbers live while dragging the target around.
+  const light = selection ? lights.find((l) => l.id === selection.id) : undefined;
 
   return (
     <div className="panel panel--right">
@@ -29,11 +31,16 @@ export default function Inspector() {
   );
 }
 
+const AIMABLE = new Set<LightDef['type']>(['directional', 'spot']);
+
 function LightInspector({ light }: { light: LightDef }) {
   const update = useEngine((s) => s.updateLight);
   const remove = useEngine((s) => s.removeLight);
   const duplicate = useEngine((s) => s.duplicateLight);
+  const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
+  const setPickingTarget = useEngine((s) => s.setPickingTarget);
   const set = (patch: Partial<LightDef>) => update(light.id, patch);
+  const picking = pickingTargetFor === light.id;
 
   return (
     <>
@@ -61,7 +68,7 @@ function LightInspector({ light }: { light: LightDef }) {
           <span className="field__label">Position</span>
           <Vec3Input value={light.position} onChange={(position) => set({ position })} />
         </div>
-        {light.type !== 'point' ? (
+        {light.type !== 'point' && !light.target ? (
           <div className="field field--stack">
             <span className="field__label">Rotation (degrees)</span>
             <Vec3Input
@@ -74,10 +81,53 @@ function LightInspector({ light }: { light: LightDef }) {
             />
           </div>
         ) : null}
-        {light.type !== 'point' ? (
+        {light.type !== 'point' && !light.target ? (
           <p className="note">Light emits along its local −Z, like every light in three.js.</p>
         ) : null}
+        {light.target ? (
+          <p className="note">Aiming at its target — drag the target, or edit it below, to redirect.</p>
+        ) : null}
       </Section>
+
+      {AIMABLE.has(light.type) ? (
+        <Section title="Target">
+          {!light.target ? (
+            <>
+              <button
+                className={'btn' + (picking ? ' btn--active' : '')}
+                type="button"
+                onClick={() => setPickingTarget(picking ? null : light.id)}
+              >
+                {picking ? 'Click in the scene…' : 'Add target'}
+              </button>
+              <p className="note">
+                {picking
+                  ? 'Click anywhere on the model or the ground to place it. Esc to cancel.'
+                  : 'Aim by clicking a point in space instead of hand-rotating.'}
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="field field--stack">
+                <span className="field__label">Target position</span>
+                <Vec3Input value={light.target} onChange={(target) => set({ target })} />
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  className={'btn' + (picking ? ' btn--active' : '')}
+                  type="button"
+                  onClick={() => setPickingTarget(picking ? null : light.id)}
+                >
+                  {picking ? 'Click in the scene…' : 'Reposition with click'}
+                </button>
+                <button className="btn btn--danger" type="button" onClick={() => set({ target: null })}>
+                  Remove target
+                </button>
+              </div>
+            </>
+          )}
+        </Section>
+      ) : null}
 
       <Section title="Emission">
         <Field label="Colour">

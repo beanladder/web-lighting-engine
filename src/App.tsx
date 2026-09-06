@@ -34,11 +34,18 @@ export default function App() {
           engine.setView({ showHelpers: !engine.showHelpers });
           break;
         case 'escape':
-          engine.select(null);
+          // Cancel an armed "click to place target" first; only fall through
+          // to deselecting once there's nothing left to cancel.
+          if (engine.pickingTargetFor) engine.setPickingTarget(null);
+          else engine.select(null);
           break;
         case 'delete':
         case 'backspace':
           if (engine.selection?.kind === 'light') engine.removeLight(engine.selection.id);
+          else if (engine.selection?.kind === 'light-target') {
+            engine.updateLight(engine.selection.id, { target: null });
+            engine.select({ kind: 'light', id: engine.selection.id });
+          }
           break;
         default:
           break;

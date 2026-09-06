@@ -1,9 +1,29 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import type { LightDef, LightType, MeshEntry, RendererBackend, Selection, TransformMode } from './types';
+import type { LightDef, LightType, MeshEntry, RendererBackend, Selection, TransformMode, Vec3 } from './types';
 
 let idCounter = 0;
 const nextId = (prefix: string) => prefix + '-' + (++idCounter).toString(36) + '-' + Date.now().toString(36);
+
+// Scratch objects for the look-at math below — reused so aiming a light at a
+// target doesn't allocate on every drag frame.
+const lookAtHelper = new THREE.Object3D();
+const lookAtTarget = new THREE.Vector3();
+
+/** The Euler rotation that makes local -Z (every light's aim direction) point from `position` toward `target`. */
+function computeLookAtRotation(position: Vec3, target: Vec3): Vec3 {
+  lookAtHelper.position.set(position[0], position[1], position[2]);
+  lookAtHelper.rotation.set(0, 0, 0);
+  lookAtTarget.set(target[0], target[1], target[2]);
+  lookAtHelper.lookAt(lookAtTarget);
+  // Object3D.lookAt() aims local +Z at the target, not -Z — the opposite of
+  // what every light in three.js treats as "forward". Turning an extra 180°
+  // around Y swaps which end faces the target without touching which way is
+  // "up" (verified numerically: without this, the light aims exactly
+  // backwards — a dot product of -1 against the true direction to target).
+  lookAtHelper.rotateY(Math.PI);
+  return [lookAtHelper.rotation.x, lookAtHelper.rotation.y, lookAtHelper.rotation.z];
+}
 
 /** Sensible per-type starting points — everything else defaults the same way. */
 const LIGHT_DEFAULTS: Record<LightType, Partial<LightDef>> = {
@@ -21,6 +41,7 @@ function makeLight(type: LightType, index: number): LightDef {
     enabled: true,
     position: type === 'directional' ? [4, 6, 4] : [0, 2.5, 2],
     rotation: [-Math.PI / 4, Math.PI / 5, 0],
+    target: null,
     color: '#ffffff',
     intensity: 1,
     castShadow: true,
@@ -72,6 +93,10 @@ interface EngineState {
   removeLight: (id: string) => void;
   updateLight: (id: string, patch: Partial<LightDef>) => void;
   select: (selection: Selection) => void;
+
+  /** Light id currently waiting for a scene click to place its target, if any. */
+  pickingTargetFor: string | null;
+  setPickingTarget: (id: string | null) => void;
 }
 
 export const useEngine = create<EngineState>((set, get) => ({
@@ -120,13 +145,30 @@ export const useEngine = create<EngineState>((set, get) => ({
   removeLight: (id) =>
     set((s) => ({
       lights: s.lights.filter((l) => l.id !== id),
-      selection: s.selection?.kind === 'light' && s.selection.id === id ? null : s.selection,
+      selection: s.selection?.id === id ? null : s.selection,
+      pickingTargetFor: s.pickingTargetFor === id ? null : s.pickingTargetFor,
     })),
 
+  // Whenever a target is in play, position/target edits keep `rotation` in
+  // sync (a look-at) so the actual three.js light, its handle, and its gizmo
+  // — all of which only ever consume `rotation` — stay correct without
+  // needing to know a target exists at all.
   updateLight: (id, patch) =>
-    set((s) => ({ lights: s.lights.map((l) => (l.id === id ? { ...l, ...patch } : l)) })),
+    set((s) => ({
+      lights: s.lights.map((l) => {
+        if (l.id !== id) return l;
+        const next = { ...l, ...patch };
+        if (next.target && (patch.position || patch.target)) {
+          next.rotation = computeLookAtRotation(next.position, next.target);
+        }
+        return next;
+      }),
+    })),
 
   select: (selection) => set({ selection }),
+
+  pickingTargetFor: null,
+  setPickingTarget: (pickingTargetFor) => set({ pickingTargetFor }),
 }));
 
 /** Live three.js objects, kept outside the store so they don't trigger React re-renders. */
