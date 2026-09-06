@@ -11,10 +11,7 @@ const MODES: { mode: TransformMode; label: string; key: string }[] = [
   { mode: 'scale', label: 'Scale', key: 'R' },
 ];
 
-/**
- * Top bar. File is real now (import, demo scene, close) — Add light, Bake and
- * Export each show up in the commit that gives them something to do.
- */
+/** Top bar: File menu, transform mode, and viewport toggles. */
 export default function Toolbar() {
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -120,7 +117,6 @@ export default function Toolbar() {
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           event.target.value = '';
-          // A proper error surface (a log panel) lands with the bake pipeline.
           void importFiles(files).catch(() => undefined);
         }}
       />

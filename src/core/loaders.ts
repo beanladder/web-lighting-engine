@@ -21,10 +21,7 @@ function extensionOf(name: string) {
   return name.slice(name.lastIndexOf('.') + 1).toLowerCase();
 }
 
-/**
- * Resolves sibling files (textures, .bin, .mtl) from a multi-file drop, so a
- * folder dragged straight out of a DCC tool loads with its maps intact.
- */
+/** Resolves sibling files (textures, .bin, .mtl) from a multi-file drop. */
 function createManager(files: File[], urls: string[]) {
   const manager = new THREE.LoadingManager();
   const byName = new Map<string, File>();
@@ -131,10 +128,7 @@ export async function loadModel(files: File[]): Promise<LoadedModel> {
   }
 }
 
-/**
- * Normalises an imported hierarchy: PBR materials everywhere, normals present,
- * and the model resting on the origin so a lighting rig makes sense against it.
- */
+/** Normalises an imported hierarchy: PBR materials, normals present, resting on the origin. */
 export function prepareModel(group: THREE.Group, warnings: string[] = []) {
   const converted = new Map<THREE.Material, THREE.Material>();
   let missingNormals = 0;

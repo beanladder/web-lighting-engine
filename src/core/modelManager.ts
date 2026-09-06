@@ -69,10 +69,7 @@ export function clearModel() {
   useEngine.getState().clearModel();
 }
 
-/**
- * Shared by every import trigger (the File menu, drag-drop) so they can't
- * race each other and always agree on the "importing…" indicator.
- */
+/** Shared by every import trigger (File menu, drag-drop) so the "importing…" indicator stays consistent. */
 export async function importFiles(files: File[]): Promise<void> {
   if (!files.length) return;
   const engine = useEngine.getState();

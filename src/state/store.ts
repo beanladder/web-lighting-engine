@@ -56,12 +56,7 @@ export const useEngine = create<EngineState>((set) => ({
     set((s) => ({ meshes: [], modelName: null, sceneRadius: 5, modelVersion: s.modelVersion + 1 })),
 }));
 
-/**
- * Live three.js objects, kept outside the store. Putting Object3Ds in React
- * state would mean every future transform-gizmo drag re-renders the whole
- * editor — so the actual model and its meshes live here, and only the
- * lightweight, serializable bits above go through zustand.
- */
+/** Live three.js objects, kept outside the store so they don't trigger React re-renders. */
 export const runtime: {
   model: THREE.Group | null;
   meshes: Map<string, THREE.Mesh>;

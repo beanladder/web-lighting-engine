@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
-/**
- * Small, dependency-free editor controls shared by the panels. Grows as the
- * commits that need more of them land — for now just the dropdown menu the
- * File menu uses.
- */
-
 /** Click-to-open dropdown that closes on outside click or Escape. */
 export function Menu({
   label,

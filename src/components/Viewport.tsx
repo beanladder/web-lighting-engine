@@ -32,10 +32,7 @@ function BackendReporter() {
   return null;
 }
 
-/**
- * Boots three.js' WebGPURenderer inside an R3F Canvas, falling back to WebGL2
- * automatically, and accepts a model dropped straight onto it.
- */
+/** Boots three.js' WebGPURenderer inside an R3F Canvas, falling back to WebGL2, and accepts dropped models. */
 export default function Viewport() {
   const [status, setStatus] = useState<'init' | 'ready' | 'failed'>('init'); // Renderer startup status
   const [error, setError] = useState<string | null>(null); // Renderer init error message, if any
@@ -46,7 +43,6 @@ export default function Viewport() {
   const busy = useEngine((s) => s.busy);
 
   const handleFiles = useCallback((files: File[]) => {
-    // A proper error surface (a log panel) lands with the bake pipeline.
     void importFiles(files).catch(() => undefined);
   }, []);
 

@@ -70,9 +70,7 @@ function CameraFraming({ modelVersion }: { modelVersion: number }) {
     }
     controls.target.copy(sphere.center);
     controls.update();
-    // Deliberately keyed on modelVersion, not `runtime.model` itself — that
-    // reference lives outside React and reading it here wouldn't re-trigger.
-  }, [modelVersion, camera, controls]);
+  }, [modelVersion, camera, controls]); // Keyed on modelVersion since runtime.model lives outside React
 
   return null;
 }
@@ -93,11 +91,7 @@ export default function SceneContents() {
     <>
       <Background />
 
-      {/*
-       * Temporary flat lighting so imported/demo MeshStandardMaterial
-       * surfaces aren't pitch black. Replaced by the authored lighting rig
-       * (directional/point/spot/area lights) in an upcoming commit.
-       */}
+      {/* Temporary flat lighting so imported/demo materials aren't pitch black */}
       <hemisphereLight color="#8fb4ff" groundColor="#2a2622" intensity={0.9} />
 
       <ModelRoot modelVersion={modelVersion} />
