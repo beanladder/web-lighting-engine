@@ -1,8 +1,10 @@
 import { useEngine } from '../state/store';
 
-/** Bottom strip: renderer backend for now, scene/bake counts join it later. */
+/** Bottom strip: renderer backend, scene counts. Bake status joins it later. */
 export default function StatusBar() {
   const backend = useEngine((s) => s.rendererBackend);
+  const meshes = useEngine((s) => s.meshes);
+  const triangles = meshes.reduce((sum, mesh) => sum + mesh.triangles, 0);
 
   return (
     <div className="status">
@@ -11,6 +13,9 @@ export default function StatusBar() {
         {backend ?? 'starting…'}
         {backend === 'WebGL2' ? ' (WebGPU unavailable — fell back)' : ''}
       </span>
+      <span className="divider" />
+      <span>{meshes.length} meshes</span>
+      <span>{triangles.toLocaleString()} triangles</span>
       <span className="spacer" />
       <span>editor under construction</span>
     </div>

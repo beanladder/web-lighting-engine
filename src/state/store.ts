@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import { buildDemoScene } from '../core/loaders';
-import type { RendererBackend, TransformMode } from './types';
+import type { MeshEntry, RendererBackend, TransformMode } from './types';
 
 /** The editor's global state. */
 interface EngineState {
@@ -16,10 +15,18 @@ interface EngineState {
   showGizmo: boolean; // Whether the transform gizmo is visible
   setView: (patch: Partial<Pick<EngineState, 'showGrid' | 'showHelpers' | 'showGizmo'>>) => void;
 
-  sceneGroup: THREE.Group | null; // Whatever's currently in the viewport
-  sceneName: string | null; // Name of the currently loaded scene
-  sceneRadius: number; // Bounding-sphere radius of sceneGroup, used to size the grid and frame the camera
-  loadDemoScene: () => void;
+  /** A short label while an import is in flight, shared so any trigger (menu, drag-drop) agrees. */
+  busy: string | null;
+  setBusy: (busy: string | null) => void;
+
+  meshes: MeshEntry[]; // Every mesh in the currently loaded model (or demo scene)
+  modelName: string | null; // Name of whatever's loaded, if anything
+  sceneRadius: number; // Bounding-sphere radius, used to size the grid and frame the camera
+  /** Bumped whenever `runtime.model` is replaced, since that swap itself is invisible to React. */
+  modelVersion: number;
+  setMeshes: (meshes: MeshEntry[], modelName: string | null, sceneRadius: number) => void;
+  updateMesh: (id: string, patch: Partial<MeshEntry>) => void;
+  clearModel: () => void;
 }
 
 export const useEngine = create<EngineState>((set) => ({
@@ -34,14 +41,26 @@ export const useEngine = create<EngineState>((set) => ({
   showGizmo: true,
   setView: (patch) => set(patch),
 
-  sceneGroup: null,
-  sceneName: null,
+  busy: null,
+  setBusy: (busy) => set({ busy }),
+
+  meshes: [],
+  modelName: null,
   sceneRadius: 5,
-  loadDemoScene: () => {
-    const group = buildDemoScene();
-    group.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(group);
-    const radius = box.isEmpty() ? 5 : box.getBoundingSphere(new THREE.Sphere()).radius;
-    set({ sceneGroup: group, sceneName: group.name, sceneRadius: Math.max(radius, 0.5) });
-  },
+  modelVersion: 0,
+  setMeshes: (meshes, modelName, sceneRadius) =>
+    set((s) => ({ meshes, modelName, sceneRadius, modelVersion: s.modelVersion + 1 })),
+  updateMesh: (id, patch) =>
+    set((s) => ({ meshes: s.meshes.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
+  clearModel: () =>
+    set((s) => ({ meshes: [], modelName: null, sceneRadius: 5, modelVersion: s.modelVersion + 1 })),
 }));
+
+/** Live three.js objects, kept outside the store so they don't trigger React re-renders. */
+export const runtime: {
+  model: THREE.Group | null;
+  meshes: Map<string, THREE.Mesh>;
+} = {
+  model: null,
+  meshes: new Map(),
+};

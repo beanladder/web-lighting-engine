@@ -2,11 +2,11 @@ import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { useEngine } from '../state/store';
+import { runtime, useEngine } from '../state/store';
 
 /** Everything that lives inside the R3F canvas. */
 
-const noRaycast = () => undefined; // Disables raycasting for the grid helper
+const noRaycast = () => undefined;
 
 /** Vertical gradient used as the visible sky. */
 function useSkyTexture() {
@@ -45,18 +45,18 @@ function Background() {
   return null;
 }
 
-/** Frames the camera on whatever's loaded, once, whenever it changes. */
-function CameraFraming() {
+/** Frames the camera on whatever's loaded, once, whenever it's replaced. */
+function CameraFraming({ modelVersion }: { modelVersion: number }) {
   const camera = useThree((s) => s.camera);
   const controls = useThree((s) => s.controls) as
     | (THREE.Controls<Record<string, unknown>> & { target: THREE.Vector3; update: () => void })
     | null;
-  const sceneGroup = useEngine((s) => s.sceneGroup);
 
   useEffect(() => {
-    if (!sceneGroup || !controls) return;
-    sceneGroup.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(sceneGroup);
+    const model = runtime.model;
+    if (!model || !controls) return;
+    model.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(model);
     if (box.isEmpty()) return;
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const distance = sphere.radius * 2.6 + 1;
@@ -70,27 +70,33 @@ function CameraFraming() {
     }
     controls.target.copy(sphere.center);
     controls.update();
-  }, [sceneGroup, camera, controls]);
+  }, [modelVersion, camera, controls]); // Keyed on modelVersion since runtime.model lives outside React
 
   return null;
 }
 
+/** Wraps `runtime.model` so it remounts whenever a new one is installed. */
+function ModelRoot({ modelVersion }: { modelVersion: number }) {
+  if (!runtime.model) return null;
+  return <primitive key={modelVersion} object={runtime.model} />;
+}
+
 export default function SceneContents() {
   const showGrid = useEngine((s) => s.showGrid);
-  const sceneGroup = useEngine((s) => s.sceneGroup);
   const sceneRadius = useEngine((s) => s.sceneRadius);
+  const modelVersion = useEngine((s) => s.modelVersion);
   const gridSize = Math.max(Math.ceil(sceneRadius * 2) * 2, 10);
 
   return (
     <>
       <Background />
 
-      {/* Temporary flat lighting for the demo scene */}
+      {/* Temporary flat lighting so imported/demo materials aren't pitch black */}
       <hemisphereLight color="#8fb4ff" groundColor="#2a2622" intensity={0.9} />
 
-      {sceneGroup ? <primitive object={sceneGroup} /> : null}
+      <ModelRoot modelVersion={modelVersion} />
 
-      <CameraFraming />
+      <CameraFraming modelVersion={modelVersion} />
 
       {showGrid ? (
         <gridHelper

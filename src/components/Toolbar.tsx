@@ -1,4 +1,8 @@
+import { useRef } from 'react';
 import { useEngine } from '../state/store';
+import { Menu, MenuItem, MenuSeparator } from './ui';
+import { buildDemoScene } from '../core/loaders';
+import { clearModel, importFiles, installModel } from '../core/modelManager';
 import type { TransformMode } from '../state/types';
 
 const MODES: { mode: TransformMode; label: string; key: string }[] = [
@@ -7,12 +11,12 @@ const MODES: { mode: TransformMode; label: string; key: string }[] = [
   { mode: 'scale', label: 'Scale', key: 'R' },
 ];
 
-/**
- * Top bar. Only the view controls that are real today (transform mode, and
- * the grid/handles/gizmo toggles) are wired up — File, Add light, Bake and
- * Export each show up in the commit that gives them something to do.
- */
+/** Top bar: File menu, transform mode, and viewport toggles. */
 export default function Toolbar() {
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const modelName = useEngine((s) => s.modelName);
+  const busy = useEngine((s) => s.busy);
   const transformMode = useEngine((s) => s.transformMode);
   const setTransformMode = useEngine((s) => s.setTransformMode);
   const showGrid = useEngine((s) => s.showGrid);
@@ -26,6 +30,38 @@ export default function Toolbar() {
         <span className="brand__mark">LumenForge</span>
         <span className="brand__sub">WebGPU Lighting</span>
       </div>
+
+      <Menu label="File" disabled={!!busy}>
+        {(close) => (
+          <>
+            <MenuItem
+              label="Import model…"
+              hint=".glb .gltf .fbx .obj .stl .ply"
+              onClick={() => {
+                close();
+                fileInput.current?.click();
+              }}
+            />
+            <MenuItem
+              label="Load demo scene"
+              hint="A small room to test against"
+              onClick={() => {
+                close();
+                installModel(buildDemoScene(), 'Demo Scene');
+              }}
+            />
+            <MenuSeparator />
+            <MenuItem
+              label="Close model"
+              disabled={!modelName}
+              onClick={() => {
+                close();
+                clearModel();
+              }}
+            />
+          </>
+        )}
+      </Menu>
 
       <div className="divider" />
 
@@ -71,6 +107,19 @@ export default function Toolbar() {
       </div>
 
       <div className="spacer" />
+
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        accept=".glb,.gltf,.bin,.obj,.mtl,.fbx,.stl,.ply,.png,.jpg,.jpeg,.webp"
+        style={{ display: 'none' }}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = '';
+          void importFiles(files).catch(() => undefined);
+        }}
+      />
     </div>
   );
 }
