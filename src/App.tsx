@@ -1,12 +1,54 @@
+import { useEffect } from 'react';
 import Toolbar from './components/Toolbar';
 import Hierarchy from './components/Hierarchy';
 import Inspector from './components/Inspector';
 import Viewport from './components/Viewport';
 import BakePanel from './components/BakePanel';
 import StatusBar from './components/StatusBar';
+import { useEngine } from './state/store';
 
 /** Editor shell: toolbar, scene tree, viewport + bake bar, inspector, status bar. */
 export default function App() {
+  // Blender/Unity-style shortcuts, ignored while typing into a field.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+      const engine = useEngine.getState();
+      switch (event.key.toLowerCase()) {
+        case 'w':
+          engine.setTransformMode('translate');
+          break;
+        case 'e':
+          engine.setTransformMode('rotate');
+          break;
+        case 'r':
+          engine.setTransformMode('scale');
+          break;
+        case 'g':
+          engine.setView({ showGrid: !engine.showGrid });
+          break;
+        case 'h':
+          engine.setView({ showHelpers: !engine.showHelpers });
+          break;
+        case 'escape':
+          engine.select(null);
+          break;
+        case 'delete':
+        case 'backspace':
+          if (engine.selection?.kind === 'light') engine.removeLight(engine.selection.id);
+          break;
+        default:
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
     <div className="app">
       <Toolbar />

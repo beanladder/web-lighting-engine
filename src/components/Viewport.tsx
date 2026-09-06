@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { WebGPURenderer } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
+import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
 import { Canvas, useThree } from '@react-three/fiber';
 import SceneContents from './SceneContents';
 import { useEngine } from '../state/store';
 import { buildDemoScene } from '../core/loaders';
 import { importFiles, installModel } from '../core/modelManager';
+
+// Rect-area lights need their linearly-transformed-cosine tables uploaded once
+// before the first render, or they simply don't light anything.
+RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
 
 /** Requests a WebGPU adapter, racing it against a timeout so a hung driver falls back instead of hanging forever. */
 async function webGPUAvailable(timeoutMs = 4000): Promise<boolean> {
@@ -67,8 +72,10 @@ export default function Viewport() {
       }}
     >
       <Canvas
+        shadows
         dpr={[1, 2]}
         camera={{ position: [4, 3, 5], fov: 45, near: 0.05, far: 1000 }}
+        onPointerMissed={() => useEngine.getState().select(null)}
         gl={async (props) => {
           try {
             const forceWebGL = !(await webGPUAvailable());

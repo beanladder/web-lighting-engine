@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useThree } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { useThree, type ThreeEvent } from '@react-three/fiber';
+import { OrbitControls, TransformControls } from '@react-three/drei';
 import { runtime, useEngine } from '../state/store';
+import type { LightDef } from '../state/types';
 
 /** Everything that lives inside the R3F canvas. */
 
@@ -81,6 +82,277 @@ function ModelRoot({ modelVersion }: { modelVersion: number }) {
   return <primitive key={modelVersion} object={runtime.model} />;
 }
 
+/**
+ * Clickable viewport handle for a light. Stays visible regardless of whether
+ * the light is enabled, so a disabled light can still be found and re-enabled.
+ */
+function LightHandle({
+  light,
+  selected,
+  onSelect,
+}: {
+  light: LightDef;
+  selected: boolean;
+  onSelect: (event: ThreeEvent<MouseEvent>) => void;
+}) {
+  const color = useMemo(
+    () => new THREE.Color(selected ? '#ffb454' : light.color),
+    [selected, light.color],
+  );
+
+  const rays = useMemo(() => {
+    const points: number[] = [];
+    if (light.type === 'directional') {
+      for (const [x, y] of [
+        [0, 0],
+        [0.3, 0],
+        [-0.3, 0],
+        [0, 0.3],
+        [0, -0.3],
+      ]) {
+        points.push(x, y, 0, x, y, -1.8);
+      }
+    } else if (light.type === 'spot') {
+      points.push(0, 0, 0, 0, 0, -0.4);
+    }
+    return new Float32Array(points);
+  }, [light.type]);
+
+  const outline = useMemo(() => {
+    if (light.type !== 'area') return new Float32Array(0);
+    const w = light.width / 2;
+    const h = light.height / 2;
+    const corners: [number, number][] = [
+      [-w, -h],
+      [w, -h],
+      [w, h],
+      [-w, h],
+    ];
+    const points: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const a = corners[i];
+      const b = corners[(i + 1) % 4];
+      points.push(a[0], a[1], 0, b[0], b[1], 0);
+    }
+    points.push(0, 0, 0, 0, 0, -Math.max(w, h) * 0.8);
+    return new Float32Array(points);
+  }, [light.type, light.width, light.height]);
+
+  const coneLength = Math.max(light.distance > 0 ? Math.min(light.distance, 8) : 3, 0.5);
+
+  return (
+    <group>
+      <mesh onClick={onSelect} renderOrder={3}>
+        <sphereGeometry args={[0.12, 16, 12]} />
+        <meshBasicMaterial color={color} toneMapped={false} depthTest={!selected} />
+      </mesh>
+
+      {rays.length ? (
+        <lineSegments renderOrder={3} raycast={noRaycast}>
+          <bufferGeometry>
+            <bufferAttribute attach="attributes-position" args={[rays, 3]} />
+          </bufferGeometry>
+          <lineBasicMaterial color={color} toneMapped={false} transparent opacity={0.9} />
+        </lineSegments>
+      ) : null}
+
+      {light.type === 'spot' ? (
+        <mesh position={[0, 0, -coneLength / 2]} rotation={[-Math.PI / 2, 0, 0]} raycast={noRaycast}>
+          <coneGeometry args={[Math.tan(light.angle) * coneLength, coneLength, 28, 1, true]} />
+          <meshBasicMaterial
+            color={color}
+            wireframe
+            transparent
+            opacity={selected ? 0.35 : 0.16}
+            toneMapped={false}
+          />
+        </mesh>
+      ) : null}
+
+      {light.type === 'area' ? (
+        <>
+          <mesh onClick={onSelect}>
+            <planeGeometry args={[light.width, light.height]} />
+            <meshBasicMaterial
+              color={new THREE.Color(light.color)}
+              transparent
+              opacity={selected ? 0.35 : 0.18}
+              side={THREE.DoubleSide}
+              toneMapped={false}
+            />
+          </mesh>
+          <lineSegments renderOrder={3} raycast={noRaycast}>
+            <bufferGeometry>
+              <bufferAttribute attach="attributes-position" args={[outline, 3]} />
+            </bufferGeometry>
+            <lineBasicMaterial color={color} toneMapped={false} />
+          </lineSegments>
+        </>
+      ) : null}
+    </group>
+  );
+}
+
+/** One authored light: the three.js light itself plus its handle. */
+function LightObject({ light, selected }: { light: LightDef; selected: boolean }) {
+  const group = useRef<THREE.Group>(null);
+  const sceneRadius = useEngine((s) => s.sceneRadius);
+  const showHelpers = useEngine((s) => s.showHelpers);
+  const select = useEngine((s) => s.select);
+
+  // A child object one unit down -Z gives directional and spot lights their
+  // aim without needing a separate target in the scene root.
+  const target = useMemo(() => {
+    const object = new THREE.Object3D();
+    object.position.set(0, 0, -1);
+    return object;
+  }, []);
+
+  // Sync transforms edited from the inspector. TransformControls mutates the
+  // object directly, so this is a no-op during a drag.
+  useLayoutEffect(() => {
+    const object = group.current;
+    if (!object) return;
+    object.position.set(light.position[0], light.position[1], light.position[2]);
+    object.rotation.set(light.rotation[0], light.rotation[1], light.rotation[2]);
+  }, [light.position, light.rotation]);
+
+  const color = useMemo(() => new THREE.Color(light.color), [light.color]);
+  const shadowExtent = Math.max(sceneRadius * 1.5, 1);
+  const shadowFar = sceneRadius * 6 + 20;
+
+  const onSelect = (event: ThreeEvent<MouseEvent>) => {
+    event.stopPropagation();
+    select({ kind: 'light', id: light.id });
+  };
+
+  return (
+    <group ref={group} name={'light:' + light.id}>
+      <primitive object={target} />
+
+      {light.enabled && light.type === 'directional' ? (
+        <directionalLight
+          color={color}
+          intensity={light.intensity}
+          castShadow={light.castShadow}
+          target={target}
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={light.shadowBias}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.1}
+          shadow-camera-far={shadowFar}
+          shadow-camera-left={-shadowExtent}
+          shadow-camera-right={shadowExtent}
+          shadow-camera-top={shadowExtent}
+          shadow-camera-bottom={-shadowExtent}
+        />
+      ) : null}
+
+      {light.enabled && light.type === 'point' ? (
+        <pointLight
+          color={color}
+          intensity={light.intensity}
+          distance={light.distance}
+          decay={light.decay}
+          castShadow={light.castShadow}
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+          shadow-bias={light.shadowBias}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.05}
+          shadow-camera-far={light.distance > 0 ? light.distance : shadowFar}
+        />
+      ) : null}
+
+      {light.enabled && light.type === 'spot' ? (
+        <spotLight
+          color={color}
+          intensity={light.intensity}
+          distance={light.distance}
+          decay={light.decay}
+          angle={light.angle}
+          penumbra={light.penumbra}
+          castShadow={light.castShadow}
+          target={target}
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={light.shadowBias}
+          shadow-normalBias={0.02}
+          shadow-camera-near={0.05}
+          shadow-camera-far={light.distance > 0 ? light.distance : shadowFar}
+        />
+      ) : null}
+
+      {light.enabled && light.type === 'area' ? (
+        <rectAreaLight
+          color={color}
+          intensity={light.intensity}
+          width={light.width}
+          height={light.height}
+        />
+      ) : null}
+
+      {showHelpers ? <LightHandle light={light} selected={selected} onSelect={onSelect} /> : null}
+    </group>
+  );
+}
+
+function LightRig() {
+  const lights = useEngine((s) => s.lights);
+  const selection = useEngine((s) => s.selection);
+
+  return (
+    <>
+      {lights.map((light) => (
+        <LightObject
+          key={light.id}
+          light={light}
+          selected={selection?.kind === 'light' && selection.id === light.id}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Moves the selected light, writing the result back to the store. */
+function Gizmo() {
+  const selection = useEngine((s) => s.selection);
+  const mode = useEngine((s) => s.transformMode);
+  const showGizmo = useEngine((s) => s.showGizmo);
+  const lights = useEngine((s) => s.lights);
+  const updateLight = useEngine((s) => s.updateLight);
+  const scene = useThree((s) => s.scene);
+  const [attached, setAttached] = useState<THREE.Object3D | null>(null);
+
+  useEffect(() => {
+    if (!showGizmo || !selection) {
+      setAttached(null);
+      return;
+    }
+    setAttached(scene.getObjectByName('light:' + selection.id) ?? null);
+  }, [selection, showGizmo, scene, lights.length]);
+
+  if (!attached || !selection) return null;
+
+  // Scaling a light means nothing; fall back to moving it.
+  const gizmoMode = mode === 'scale' ? 'translate' : mode;
+
+  return (
+    <TransformControls
+      object={attached}
+      mode={gizmoMode}
+      size={0.8}
+      onObjectChange={() => {
+        updateLight(selection.id, {
+          position: [attached.position.x, attached.position.y, attached.position.z],
+          rotation: [attached.rotation.x, attached.rotation.y, attached.rotation.z],
+        });
+      }}
+    />
+  );
+}
+
 export default function SceneContents() {
   const showGrid = useEngine((s) => s.showGrid);
   const sceneRadius = useEngine((s) => s.sceneRadius);
@@ -91,8 +363,8 @@ export default function SceneContents() {
     <>
       <Background />
 
-      {/* Temporary flat lighting so imported/demo materials aren't pitch black */}
-      <hemisphereLight color="#8fb4ff" groundColor="#2a2622" intensity={0.9} />
+      <LightRig />
+      <Gizmo />
 
       <ModelRoot modelVersion={modelVersion} />
 
