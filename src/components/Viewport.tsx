@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { WebGPURenderer } from 'three/webgpu';
+import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
+import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
 import { Canvas, useThree } from '@react-three/fiber';
 import SceneContents from './SceneContents';
 import { useEngine } from '../state/store';
 import { buildDemoScene } from '../core/loaders';
 import { importFiles, installModel } from '../core/modelManager';
+
+// Rect-area lights need their linearly-transformed-cosine tables uploaded once
+// before the first render, or they simply don't light anything.
+RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
 
 /** Requests a WebGPU adapter, racing it against a timeout so a hung driver falls back instead of hanging forever. */
 async function webGPUAvailable(timeoutMs = 4000): Promise<boolean> {
@@ -41,6 +46,7 @@ export default function Viewport() {
 
   const modelName = useEngine((s) => s.modelName);
   const busy = useEngine((s) => s.busy);
+  const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
 
   const handleFiles = useCallback((files: File[]) => {
     void importFiles(files).catch(() => undefined);
@@ -49,6 +55,7 @@ export default function Viewport() {
   return (
     <div
       className="stage__canvas"
+      style={pickingTargetFor ? { cursor: 'crosshair' } : undefined}
       onDragEnter={(event) => {
         event.preventDefault();
         dragDepth.current++;
@@ -67,8 +74,10 @@ export default function Viewport() {
       }}
     >
       <Canvas
+        shadows
         dpr={[1, 2]}
         camera={{ position: [4, 3, 5], fov: 45, near: 0.05, far: 1000 }}
+        onPointerMissed={() => useEngine.getState().select(null)}
         gl={async (props) => {
           try {
             const forceWebGL = !(await webGPUAvailable());
@@ -118,7 +127,14 @@ export default function Viewport() {
         </div>
       ) : null}
 
-      {status === 'ready' && !busy && !modelName ? (
+      {pickingTargetFor ? (
+        <div className="overlay overlay--hint">
+          <strong>Click anywhere to place the target</strong>
+          <div>The model, or the ground if you miss it — Esc to cancel</div>
+        </div>
+      ) : null}
+
+      {status === 'ready' && !busy && !modelName && !pickingTargetFor ? (
         <div className="overlay overlay--hint">
           <strong>Drop a model to start</strong>
           <div>.glb .gltf .fbx .obj .stl .ply — textures and .bin can come along too</div>

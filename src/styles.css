@@ -368,6 +368,17 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+/* Blender-style scrubber: drag left/right to change the value. */
+.input--scrub {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.input--scrub:focus {
+  cursor: text;
+  user-select: text;
+}
+
 .vec3 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

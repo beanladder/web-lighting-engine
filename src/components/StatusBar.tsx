@@ -4,6 +4,7 @@ import { useEngine } from '../state/store';
 export default function StatusBar() {
   const backend = useEngine((s) => s.rendererBackend);
   const meshes = useEngine((s) => s.meshes);
+  const lights = useEngine((s) => s.lights);
   const triangles = meshes.reduce((sum, mesh) => sum + mesh.triangles, 0);
 
   return (
@@ -16,6 +17,7 @@ export default function StatusBar() {
       <span className="divider" />
       <span>{meshes.length} meshes</span>
       <span>{triangles.toLocaleString()} triangles</span>
+      <span>{lights.length} lights</span>
       <span className="spacer" />
       <span>editor under construction</span>
     </div>
