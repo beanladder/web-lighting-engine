@@ -78,8 +78,49 @@ function CameraFraming({ modelVersion }: { modelVersion: number }) {
 
 /** Wraps `runtime.model` so it remounts whenever a new one is installed. */
 function ModelRoot({ modelVersion }: { modelVersion: number }) {
+  const select = useEngine((s) => s.select);
   if (!runtime.model) return null;
-  return <primitive key={modelVersion} object={runtime.model} />;
+  return (
+    <primitive
+      key={modelVersion}
+      object={runtime.model}
+      onClick={(event: ThreeEvent<MouseEvent>) => {
+        // R3F walks up from whatever mesh was actually hit to find the
+        // nearest ancestor with a handler — this primitive is the model's
+        // root, but `event.object` still names the real mesh underneath.
+        const mesh = event.object as THREE.Mesh;
+        if (!mesh.isMesh || !runtime.meshes.has(mesh.uuid)) return;
+        event.stopPropagation();
+        select({ kind: 'mesh', id: mesh.uuid });
+      }}
+    />
+  );
+}
+
+const outlineColor = new THREE.Color(0xffb454);
+
+/** Wire box around the selected mesh, so a click actually feels like it landed. */
+function SelectionOutline() {
+  const selection = useEngine((s) => s.selection);
+  const meshes = useEngine((s) => s.meshes); // re-measure if the mesh's own visibility (or anything else) changes
+  const [box, setBox] = useState<THREE.Box3 | null>(null);
+
+  useEffect(() => {
+    if (selection?.kind !== 'mesh') {
+      setBox(null);
+      return;
+    }
+    const mesh = runtime.meshes.get(selection.id);
+    if (!mesh) {
+      setBox(null);
+      return;
+    }
+    mesh.updateWorldMatrix(true, false);
+    setBox(new THREE.Box3().setFromObject(mesh));
+  }, [selection, meshes]);
+
+  if (!box) return null;
+  return <box3Helper args={[box, outlineColor]} raycast={noRaycast} />;
 }
 
 /**
@@ -502,6 +543,7 @@ export default function SceneContents() {
       <TargetPicker />
 
       <ModelRoot modelVersion={modelVersion} />
+      <SelectionOutline />
 
       <CameraFraming modelVersion={modelVersion} />
 

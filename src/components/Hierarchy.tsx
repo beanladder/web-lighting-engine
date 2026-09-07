@@ -85,14 +85,28 @@ export default function Hierarchy() {
             <div className="empty">Nothing imported yet.</div>
           ) : (
             meshes.map((mesh) => (
-              <div key={mesh.id} className={'row' + (mesh.visible ? '' : ' row--muted')}>
+              <div
+                key={mesh.id}
+                className={
+                  'row' +
+                  (selection?.kind === 'mesh' && selection.id === mesh.id ? ' row--selected' : '') +
+                  (mesh.visible ? '' : ' row--muted')
+                }
+                onClick={() => select({ kind: 'mesh', id: mesh.id })}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') select({ kind: 'mesh', id: mesh.id });
+                }}
+              >
                 <span style={{ color: 'var(--text-faint)', fontSize: 11, width: 12 }}>▧</span>
                 <span className="row__name">{mesh.name}</span>
                 <button
                   type="button"
                   className="row__toggle"
                   title={mesh.visible ? 'Hide' : 'Show'}
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.stopPropagation();
                     const object = runtime.meshes.get(mesh.id);
                     if (object) object.visible = !mesh.visible;
                     updateMesh(mesh.id, { visible: !mesh.visible });

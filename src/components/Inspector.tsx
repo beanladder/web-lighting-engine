@@ -1,6 +1,7 @@
-import { useEngine } from '../state/store';
+import * as THREE from 'three';
+import { runtime, useEngine } from '../state/store';
 import { Check, ColorInput, Field, NumberInput, Section, SliderInput, Vec3Input } from './ui';
-import type { LightDef } from '../state/types';
+import type { LightDef, MeshEntry } from '../state/types';
 
 const RAD = 180 / Math.PI;
 
@@ -8,9 +9,11 @@ const RAD = 180 / Math.PI;
 export default function Inspector() {
   const selection = useEngine((s) => s.selection);
   const lights = useEngine((s) => s.lights);
+  const meshes = useEngine((s) => s.meshes);
   // Selecting a light's target still shows that light's inspector — you want
   // to see (and edit) its numbers live while dragging the target around.
-  const light = selection ? lights.find((l) => l.id === selection.id) : undefined;
+  const light = selection && selection.kind !== 'mesh' ? lights.find((l) => l.id === selection.id) : undefined;
+  const mesh = selection?.kind === 'mesh' ? meshes.find((m) => m.id === selection.id) : undefined;
 
   return (
     <div className="panel panel--right">
@@ -19,11 +22,12 @@ export default function Inspector() {
       </div>
       <div className="panel__scroll">
         {light ? <LightInspector light={light} /> : null}
-        {!light ? (
+        {mesh ? <MeshInspector mesh={mesh} /> : null}
+        {!light && !mesh ? (
           <div className="empty">
             Nothing selected.
             <br />
-            Pick a light in the scene tree.
+            Pick a light or a mesh in the scene tree.
           </div>
         ) : null}
       </div>
@@ -225,6 +229,94 @@ function LightInspector({ light }: { light: LightDef }) {
               step={0.0001}
               precision={5}
               onChange={(shadowBias) => set({ shadowBias })}
+            />
+          </Field>
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+function MeshInspector({ mesh }: { mesh: MeshEntry }) {
+  const updateMesh = useEngine((s) => s.updateMesh);
+  const object = runtime.meshes.get(mesh.id);
+  const material = object
+    ? ((Array.isArray(object.material) ? object.material[0] : object.material) as
+        | THREE.MeshStandardMaterial
+        | undefined)
+    : undefined;
+
+  // Material edits are imperative (straight onto the live three.js material,
+  // same as everything else in `runtime`) — this nudges the store afterward
+  // purely so the Inspector re-reads the values it just wrote and reflects
+  // them, without duplicating material state into zustand.
+  const editMaterial = (apply: (target: THREE.MeshStandardMaterial) => void) => {
+    if (!material) return;
+    apply(material);
+    updateMesh(mesh.id, {});
+  };
+
+  return (
+    <>
+      <Section title="Mesh">
+        <Field label="Name">
+          <input className="input" value={mesh.name} readOnly />
+        </Field>
+        <Field label="Triangles">
+          <input className="input input--number" value={mesh.triangles.toLocaleString()} readOnly />
+        </Field>
+        <Field label="Material">
+          <input className="input" value={mesh.materialName} readOnly />
+        </Field>
+        <Check
+          label="Visible"
+          checked={mesh.visible}
+          onChange={(visible) => {
+            if (object) object.visible = visible;
+            updateMesh(mesh.id, { visible });
+          }}
+        />
+      </Section>
+
+      {material ? (
+        <Section title="Surface">
+          <Field label="Base colour">
+            <ColorInput
+              value={'#' + material.color.getHexString()}
+              onChange={(value) => editMaterial((target) => target.color.set(value))}
+            />
+          </Field>
+          <Field label="Roughness">
+            <SliderInput
+              value={material.roughness}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => editMaterial((target) => (target.roughness = value))}
+            />
+          </Field>
+          <Field label="Metalness">
+            <SliderInput
+              value={material.metalness}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => editMaterial((target) => (target.metalness = value))}
+            />
+          </Field>
+          <Field label="Emissive">
+            <ColorInput
+              value={'#' + material.emissive.getHexString()}
+              onChange={(value) => editMaterial((target) => target.emissive.set(value))}
+            />
+          </Field>
+          <Field label="Emissive power">
+            <SliderInput
+              value={material.emissiveIntensity}
+              min={0}
+              max={20}
+              step={0.05}
+              onChange={(value) => editMaterial((target) => (target.emissiveIntensity = value))}
             />
           </Field>
         </Section>
