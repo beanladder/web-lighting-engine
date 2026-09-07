@@ -278,6 +278,54 @@ function MeshInspector({ mesh }: { mesh: MeshEntry }) {
         />
       </Section>
 
+      {object ? (
+        <Section title="Transform">
+          {/*
+           * Unlike lights, a mesh's Object3D is already the single source of
+           * truth for its own transform — nothing mirrors it into the store.
+           * These edit it directly and nudge the store afterward, same as
+           * the gizmo drag above and the material edits below.
+           */}
+          <div className="field field--stack">
+            <span className="field__label">Position</span>
+            <Vec3Input
+              value={[object.position.x, object.position.y, object.position.z]}
+              onChange={(position) => {
+                object.position.set(position[0], position[1], position[2]);
+                updateMesh(mesh.id, {});
+              }}
+            />
+          </div>
+          <div className="field field--stack">
+            <span className="field__label">Rotation (degrees)</span>
+            <Vec3Input
+              value={[
+                object.rotation.x * RAD,
+                object.rotation.y * RAD,
+                object.rotation.z * RAD,
+              ]}
+              step={1}
+              precision={1}
+              onChange={(value) => {
+                object.rotation.set(value[0] / RAD, value[1] / RAD, value[2] / RAD);
+                updateMesh(mesh.id, {});
+              }}
+            />
+          </div>
+          <div className="field field--stack">
+            <span className="field__label">Scale</span>
+            <Vec3Input
+              value={[object.scale.x, object.scale.y, object.scale.z]}
+              step={0.01}
+              onChange={(scale) => {
+                object.scale.set(scale[0], scale[1], scale[2]);
+                updateMesh(mesh.id, {});
+              }}
+            />
+          </div>
+        </Section>
+      ) : null}
+
       {material ? (
         <Section title="Surface">
           <Field label="Base colour">
