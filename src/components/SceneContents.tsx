@@ -78,8 +78,49 @@ function CameraFraming({ modelVersion }: { modelVersion: number }) {
 
 /** Wraps `runtime.model` so it remounts whenever a new one is installed. */
 function ModelRoot({ modelVersion }: { modelVersion: number }) {
+  const select = useEngine((s) => s.select);
   if (!runtime.model) return null;
-  return <primitive key={modelVersion} object={runtime.model} />;
+  return (
+    <primitive
+      key={modelVersion}
+      object={runtime.model}
+      onClick={(event: ThreeEvent<MouseEvent>) => {
+        // R3F walks up from whatever mesh was actually hit to find the
+        // nearest ancestor with a handler — this primitive is the model's
+        // root, but `event.object` still names the real mesh underneath.
+        const mesh = event.object as THREE.Mesh;
+        if (!mesh.isMesh || !runtime.meshes.has(mesh.uuid)) return;
+        event.stopPropagation();
+        select({ kind: 'mesh', id: mesh.uuid });
+      }}
+    />
+  );
+}
+
+const outlineColor = new THREE.Color(0xffb454);
+
+/** Wire box around the selected mesh, so a click actually feels like it landed. */
+function SelectionOutline() {
+  const selection = useEngine((s) => s.selection);
+  const meshes = useEngine((s) => s.meshes); // re-measure if the mesh's own visibility (or anything else) changes
+  const [box, setBox] = useState<THREE.Box3 | null>(null);
+
+  useEffect(() => {
+    if (selection?.kind !== 'mesh') {
+      setBox(null);
+      return;
+    }
+    const mesh = runtime.meshes.get(selection.id);
+    if (!mesh) {
+      setBox(null);
+      return;
+    }
+    mesh.updateWorldMatrix(true, false);
+    setBox(new THREE.Box3().setFromObject(mesh));
+  }, [selection, meshes]);
+
+  if (!box) return null;
+  return <box3Helper args={[box, outlineColor]} raycast={noRaycast} />;
 }
 
 /**
@@ -374,12 +415,20 @@ function Gizmo() {
   const showGizmo = useEngine((s) => s.showGizmo);
   const lights = useEngine((s) => s.lights);
   const updateLight = useEngine((s) => s.updateLight);
+  const updateMesh = useEngine((s) => s.updateMesh);
   const scene = useThree((s) => s.scene);
   const [attached, setAttached] = useState<THREE.Object3D | null>(null);
 
   useEffect(() => {
     if (!showGizmo || !selection) {
       setAttached(null);
+      return;
+    }
+    if (selection.kind === 'mesh') {
+      // Meshes are looked up by uuid straight from the runtime map — unlike
+      // lights, there's no synthetic name to rely on (`mesh.name` is
+      // whatever the imported file called it, not an id).
+      setAttached(runtime.meshes.get(selection.id) ?? null);
       return;
     }
     const name =
@@ -389,12 +438,13 @@ function Gizmo() {
 
   if (!attached || !selection) return null;
 
-  const selectedLight = lights.find((l) => l.id === selection.id);
+  const selectedLight = selection.kind !== 'mesh' ? lights.find((l) => l.id === selection.id) : undefined;
   // A target point only ever moves. A light that's aiming at one is also
   // locked to translate — rotating it would have no visible effect, since
-  // the target overrides its aim on the very next update.
+  // the target overrides its aim on the very next update. Meshes get the
+  // full set: translate, rotate and scale are all meaningful on a mesh.
   const lockedToTranslate = selection.kind === 'light-target' || !!selectedLight?.target;
-  const gizmoMode = lockedToTranslate ? 'translate' : mode === 'scale' ? 'translate' : mode;
+  const gizmoMode = lockedToTranslate ? 'translate' : selection.kind === 'mesh' ? mode : mode === 'scale' ? 'translate' : mode;
 
   return (
     <TransformControls
@@ -402,6 +452,13 @@ function Gizmo() {
       mode={gizmoMode}
       size={0.8}
       onObjectChange={() => {
+        if (selection.kind === 'mesh') {
+          // The mesh's Object3D is already the source of truth for its own
+          // transform — nothing to write back. This just nudges the store so
+          // the Inspector (and the selection outline) re-render with it.
+          updateMesh(selection.id, {});
+          return;
+        }
         if (selection.kind === 'light-target') {
           updateLight(selection.id, {
             target: [attached.position.x, attached.position.y, attached.position.z],
@@ -502,6 +559,7 @@ export default function SceneContents() {
       <TargetPicker />
 
       <ModelRoot modelVersion={modelVersion} />
+      <SelectionOutline />
 
       <CameraFraming modelVersion={modelVersion} />
 

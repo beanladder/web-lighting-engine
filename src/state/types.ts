@@ -63,6 +63,6 @@ export interface LightDef {
 /**
  * What's selected in the viewport/hierarchy. A light-target is its own kind
  * (rather than folded into 'light') since it's a separate draggable point in
- * space, addressed by the same light's id. Meshes join once mesh selection lands.
+ * space, addressed by the same light's id.
  */
-export type Selection = { kind: 'light' | 'light-target'; id: string } | null;
+export type Selection = { kind: 'light' | 'light-target' | 'mesh'; id: string } | null;
