@@ -6,6 +6,7 @@ import Viewport from './components/Viewport';
 import BakePanel from './components/BakePanel';
 import StatusBar from './components/StatusBar';
 import { useEngine } from './state/store';
+import { runBake } from './core/bake';
 
 /** Editor shell: toolbar, scene tree, viewport + bake bar, inspector, status bar. */
 export default function App() {
@@ -32,6 +33,9 @@ export default function App() {
           break;
         case 'h':
           engine.setView({ showHelpers: !engine.showHelpers });
+          break;
+        case 'b':
+          void runBake();
           break;
         case 'escape':
           // Cancel an armed "click to place target" first; only fall through

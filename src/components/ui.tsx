@@ -227,6 +227,33 @@ export function Check({
   );
 }
 
+export function Select<T extends string | number>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+}) {
+  return (
+    <select
+      className="select"
+      value={String(value)}
+      onChange={(event) => {
+        const match = options.find((option) => String(option.value) === event.target.value);
+        if (match) onChange(match.value);
+      }}
+    >
+      {options.map((option) => (
+        <option key={String(option.value)} value={String(option.value)}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** Click-to-open dropdown that closes on outside click or Escape. */
 export function Menu({
   label,

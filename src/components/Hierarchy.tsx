@@ -13,6 +13,7 @@ export default function Hierarchy() {
   const meshes = useEngine((s) => s.meshes);
   const modelName = useEngine((s) => s.modelName);
   const selection = useEngine((s) => s.selection);
+  const environment = useEngine((s) => s.environment);
   const select = useEngine((s) => s.select);
   const updateLight = useEngine((s) => s.updateLight);
   const updateMesh = useEngine((s) => s.updateMesh);
@@ -32,6 +33,17 @@ export default function Hierarchy() {
 
       <div className="panel__scroll">
         <div className="tree">
+          <div className="tree__group">Environment</div>
+          <button
+            type="button"
+            className={'row' + (selection?.kind === 'environment' ? ' row--selected' : '')}
+            onClick={() => select({ kind: 'environment' })}
+          >
+            <span className="swatch" style={{ background: environment.skyColor }} />
+            <span className="row__name">Sky light</span>
+            <span className="row__tag">ambient</span>
+          </button>
+
           <div className="tree__group">
             Lights <span className="tree__count">{lights.length}</span>
           </div>
@@ -62,6 +74,7 @@ export default function Hierarchy() {
                   {TYPE_GLYPH[light.type]}
                 </span>
                 <span className="row__name">{light.name}</span>
+                {light.bake ? null : <span className="row__tag">no bake</span>}
                 <button
                   type="button"
                   className="row__toggle"
@@ -101,6 +114,7 @@ export default function Hierarchy() {
               >
                 <span style={{ color: 'var(--text-faint)', fontSize: 11, width: 12 }}>▧</span>
                 <span className="row__name">{mesh.name}</span>
+                {mesh.lightmapped ? null : <span className="row__tag">no LM</span>}
                 <button
                   type="button"
                   className="row__toggle"

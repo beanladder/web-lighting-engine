@@ -1,6 +1,19 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
-import type { LightDef, LightType, MeshEntry, RendererBackend, Selection, TransformMode, Vec3 } from './types';
+import type {
+  BakeSettings,
+  BakeStats,
+  BakeStatus,
+  EnvironmentDef,
+  LightDef,
+  LightType,
+  MeshEntry,
+  RendererBackend,
+  Selection,
+  TransformMode,
+  Vec3,
+  ViewMode,
+} from './types';
 
 let idCounter = 0;
 const nextId = (prefix: string) => prefix + '-' + (++idCounter).toString(36) + '-' + Date.now().toString(36);
@@ -27,9 +40,17 @@ function computeLookAtRotation(position: Vec3, target: Vec3): Vec3 {
 
 /** Sensible per-type starting points — everything else defaults the same way. */
 const LIGHT_DEFAULTS: Record<LightType, Partial<LightDef>> = {
-  directional: { intensity: 3, castShadow: true },
-  point: { intensity: 12, distance: 0, decay: 2, castShadow: true },
-  spot: { intensity: 40, distance: 0, decay: 2, angle: Math.PI / 6, penumbra: 0.4, castShadow: true },
+  directional: { intensity: 3, radius: 0.5, castShadow: true },
+  point: { intensity: 12, distance: 0, decay: 2, radius: 0.15, castShadow: true },
+  spot: {
+    intensity: 40,
+    distance: 0,
+    decay: 2,
+    angle: Math.PI / 6,
+    penumbra: 0.4,
+    radius: 0.1,
+    castShadow: true,
+  },
   area: { intensity: 6, width: 2, height: 2, castShadow: false },
 };
 
@@ -39,6 +60,8 @@ function makeLight(type: LightType, index: number): LightDef {
     name: type[0].toUpperCase() + type.slice(1) + ' Light ' + index,
     type,
     enabled: true,
+    preview: true,
+    bake: true,
     position: type === 'directional' ? [4, 6, 4] : [0, 2.5, 2],
     rotation: [-Math.PI / 4, Math.PI / 5, 0],
     target: null,
@@ -50,6 +73,7 @@ function makeLight(type: LightType, index: number): LightDef {
     decay: 2,
     angle: Math.PI / 6,
     penumbra: 0.3,
+    radius: 0.1,
     width: 2,
     height: 2,
   };
@@ -59,6 +83,45 @@ function makeLight(type: LightType, index: number): LightDef {
 // A key light so the viewport is never a black void — replaces the flat
 // hemisphere-light scaffold from the previous commit now that real lights exist.
 const DEFAULT_LIGHTS: LightDef[] = [{ ...makeLight('directional', 1), name: 'Key Light' }];
+
+const DEFAULT_ENVIRONMENT: EnvironmentDef = {
+  skyColor: '#8fb4ff',
+  groundColor: '#2a2622',
+  intensity: 0.6,
+  enabled: true,
+  bake: true,
+  background: 'gradient',
+  backgroundColor: '#101216',
+};
+
+const DEFAULT_BAKE_SETTINGS: BakeSettings = {
+  resolution: 1024,
+  unwrap: 'generate',
+  padding: 3,
+  samples: 128,
+  bounces: 1,
+  shadowSamples: 4,
+  rayDistance: 0,
+  bias: 0.004,
+  denoise: true,
+  denoiseStrength: 0.6,
+  dilate: 4,
+  exposure: 1,
+  aoStrength: 1,
+  threads: 0,
+};
+
+export interface BakeResult {
+  texture: THREE.DataTexture;
+  /** Raw linear irradiance, kept so exposure can be re-applied without re-tracing. */
+  raw: Float32Array;
+  /** Per-texel albedo, needed for the combined (unlit) export. */
+  albedo: Float32Array;
+  size: number;
+  /** Meshes that were included, so we know what to strip on clear. */
+  meshIds: string[];
+  stats: BakeStats;
+}
 
 /** The editor's global state. */
 interface EngineState {
@@ -71,7 +134,8 @@ interface EngineState {
   showGrid: boolean; // Whether the grid helper is visible
   showHelpers: boolean; // Whether light handles are visible
   showGizmo: boolean; // Whether the transform gizmo is visible
-  setView: (patch: Partial<Pick<EngineState, 'showGrid' | 'showHelpers' | 'showGizmo'>>) => void;
+  viewMode: ViewMode; // Which material variant the viewport shows
+  setView: (patch: Partial<Pick<EngineState, 'showGrid' | 'showHelpers' | 'showGizmo' | 'viewMode'>>) => void;
 
   /** A short label while an import is in flight, shared so any trigger (menu, drag-drop) agrees. */
   busy: string | null;
@@ -97,6 +161,18 @@ interface EngineState {
   /** Light id currently waiting for a scene click to place its target, if any. */
   pickingTargetFor: string | null;
   setPickingTarget: (id: string | null) => void;
+
+  environment: EnvironmentDef;
+  updateEnvironment: (patch: Partial<EnvironmentDef>) => void;
+
+  bakeSettings: BakeSettings;
+  bakeStatus: BakeStatus;
+  bakeResult: BakeResult | null;
+  log: { time: number; level: 'info' | 'warn' | 'error'; message: string }[];
+  updateBakeSettings: (patch: Partial<BakeSettings>) => void;
+  setBakeStatus: (status: BakeStatus) => void;
+  setBakeResult: (result: BakeResult | null) => void;
+  pushLog: (level: 'info' | 'warn' | 'error', message: string) => void;
 }
 
 export const useEngine = create<EngineState>((set, get) => ({
@@ -109,6 +185,7 @@ export const useEngine = create<EngineState>((set, get) => ({
   showGrid: true,
   showHelpers: true,
   showGizmo: true,
+  viewMode: 'lit',
   setView: (patch) => set(patch),
 
   busy: null,
@@ -123,7 +200,14 @@ export const useEngine = create<EngineState>((set, get) => ({
   updateMesh: (id, patch) =>
     set((s) => ({ meshes: s.meshes.map((m) => (m.id === id ? { ...m, ...patch } : m)) })),
   clearModel: () =>
-    set((s) => ({ meshes: [], modelName: null, sceneRadius: 5, modelVersion: s.modelVersion + 1 })),
+    set((s) => ({
+      meshes: [],
+      modelName: null,
+      sceneRadius: 5,
+      modelVersion: s.modelVersion + 1,
+      bakeResult: null,
+      bakeStatus: { phase: 'idle' },
+    })),
 
   lights: DEFAULT_LIGHTS,
   selection: null,
@@ -145,7 +229,7 @@ export const useEngine = create<EngineState>((set, get) => ({
   removeLight: (id) =>
     set((s) => ({
       lights: s.lights.filter((l) => l.id !== id),
-      selection: s.selection?.id === id ? null : s.selection,
+      selection: s.selection && s.selection.kind !== 'environment' && s.selection.id === id ? null : s.selection,
       pickingTargetFor: s.pickingTargetFor === id ? null : s.pickingTargetFor,
     })),
 
@@ -169,13 +253,32 @@ export const useEngine = create<EngineState>((set, get) => ({
 
   pickingTargetFor: null,
   setPickingTarget: (pickingTargetFor) => set({ pickingTargetFor }),
+
+  environment: DEFAULT_ENVIRONMENT,
+  updateEnvironment: (patch) => set((s) => ({ environment: { ...s.environment, ...patch } })),
+
+  bakeSettings: DEFAULT_BAKE_SETTINGS,
+  bakeStatus: { phase: 'idle' },
+  bakeResult: null,
+  log: [],
+  updateBakeSettings: (patch) => set((s) => ({ bakeSettings: { ...s.bakeSettings, ...patch } })),
+  setBakeStatus: (bakeStatus) => set({ bakeStatus }),
+  setBakeResult: (bakeResult) => set({ bakeResult }),
+  pushLog: (level, message) =>
+    set((s) => ({ log: [...s.log.slice(-199), { time: Date.now(), level, message }] })),
 }));
 
 /** Live three.js objects, kept outside the store so they don't trigger React re-renders. */
 export const runtime: {
   model: THREE.Group | null;
   meshes: Map<string, THREE.Mesh>;
+  /** Materials as they arrived, so preview modes can be swapped non-destructively. */
+  originalMaterials: Map<string, THREE.Material | THREE.Material[]>;
+  /** Lightmap-wired clones of the originals, rebuilt on every bake. */
+  bakedMaterials: Map<string, THREE.Material | THREE.Material[]>;
 } = {
   model: null,
   meshes: new Map(),
+  originalMaterials: new Map(),
+  bakedMaterials: new Map(),
 };

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { runtime, useEngine } from '../state/store';
 import type { MeshEntry } from '../state/types';
 import { loadModel } from './loaders';
+import { clearLightmap, rememberOriginals } from './materials';
 
 /** Owns the lifetime of whatever's currently loaded, outside of React. */
 
@@ -16,6 +17,7 @@ function disposeMaterial(material: THREE.Material | THREE.Material[]) {
 
 function disposeModel() {
   const model = runtime.model;
+  clearLightmap();
   if (model) {
     model.traverse((object) => {
       const mesh = object as THREE.Mesh;
@@ -26,6 +28,8 @@ function disposeModel() {
   }
   runtime.model = null;
   runtime.meshes.clear();
+  runtime.originalMaterials.clear();
+  runtime.bakedMaterials.clear();
 }
 
 function describe(mesh: THREE.Mesh): MeshEntry {
@@ -37,7 +41,12 @@ function describe(mesh: THREE.Mesh): MeshEntry {
     id: mesh.uuid,
     name: mesh.name || 'Mesh',
     visible: mesh.visible,
+    // Transparent surfaces get no lightmap by default — a baked value behind
+    // glass is worse than no value at all.
+    lightmapped: !material?.transparent,
+    occluder: true,
     triangles: Math.round(triangles),
+    hasUV: !!mesh.geometry.getAttribute('uv'),
     materialName: material?.name || material?.type || 'Material',
   };
 }
@@ -61,6 +70,9 @@ export function installModel(group: THREE.Group, name: string): MeshEntry[] {
   const radius = box.isEmpty() ? 5 : box.getBoundingSphere(new THREE.Sphere()).radius;
 
   useEngine.getState().setMeshes(entries, name, Math.max(radius, 0.5));
+  useEngine.getState().setBakeResult(null);
+  useEngine.getState().setBakeStatus({ phase: 'idle' });
+  rememberOriginals();
   return entries;
 }
 
