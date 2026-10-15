@@ -34,6 +34,8 @@ export default function BakePanel() {
   const bakeResult = useEngine((s) => s.bakeResult);
   const modelName = useEngine((s) => s.modelName);
   const environmentBaked = useEngine((s) => s.environment.enabled && s.environment.bake);
+  const gpuAvailable = useEngine((s) => s.gpuAvailable);
+  const gpuName = useEngine((s) => s.gpuName);
   const update = useEngine((s) => s.updateBakeSettings);
   const logEnd = useRef<HTMLDivElement>(null);
 
@@ -93,6 +95,26 @@ export default function BakePanel() {
 
       <div className="bakebar__body">
         <div className="bakebar__col">
+          <Field label="Tracer">
+            <Select
+              value={settings.backend}
+              options={[
+                { value: 'cpu' as const, label: 'CPU · workers' },
+                { value: 'gpu' as const, label: gpuAvailable ? 'GPU · WebGPU' : 'GPU · unavailable' },
+              ]}
+              onChange={(backend) => {
+                if (backend === 'gpu' && !gpuAvailable) return;
+                update({ backend });
+              }}
+            />
+          </Field>
+          <p className="note">
+            {settings.backend === 'gpu'
+              ? 'Tracing on ' + (gpuName ?? 'the GPU') + '.'
+              : gpuAvailable
+                ? 'Same solve on ' + (gpuName ?? 'the GPU') + ' if you switch to GPU.'
+                : 'No WebGPU here — CPU workers only.'}
+          </p>
           <Field label="Resolution">
             <Select
               value={settings.resolution}

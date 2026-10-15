@@ -91,7 +91,14 @@ export interface EnvironmentDef {
 
 export type UnwrapMode = 'generate' | 'existing-uv1' | 'existing-uv0';
 
+/**
+ * Which tracer solves the lightmap. Both implement the same shading model —
+ * 'cpu' spreads it across Workers, 'gpu' runs it as a WebGPU compute shader.
+ */
+export type BakeBackend = 'cpu' | 'gpu';
+
 export interface BakeSettings {
+  backend: BakeBackend;
   resolution: 256 | 512 | 1024 | 2048 | 4096;
   unwrap: UnwrapMode;
   /** Padding between charts, in texels. */

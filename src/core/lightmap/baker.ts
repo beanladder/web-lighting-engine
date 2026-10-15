@@ -12,6 +12,7 @@ import type {
 } from '../../state/types';
 import { packExistingUVs, unwrapForLightmap, type UnwrapInput } from './unwrap';
 import { collectSamples, rasterizeToAtlas, type RasterInput } from './rasterize';
+import { traceOnGPU } from './gpuTracer';
 
 export interface BakeTarget {
   id: string;
@@ -366,6 +367,33 @@ export async function bakeLightmap(
   const progressPerWorker = new Array(threads).fill(0);
   let totalRays = 0;
 
+  if (settings.backend === 'gpu') {
+    const traced = await traceOnGPU(
+      scene,
+      samples,
+      serializedLights,
+      serializedEnvironment,
+      {
+        samples: settings.samples,
+        bounces: settings.bounces,
+        shadowSamples: settings.shadowSamples,
+        rayDistance: settings.rayDistance,
+        bias: settings.bias,
+        aoStrength: settings.aoStrength,
+      },
+      (progress, note) => onProgress({ phase: 'tracing', progress, note }),
+      signal,
+    );
+    totalRays = traced.rays;
+    for (let i = 0; i < samples.count; i++) {
+      const texel = samples.texelIndex[i];
+      atlas[texel * 3] = traced.color[i * 3];
+      atlas[texel * 3 + 1] = traced.color[i * 3 + 1];
+      atlas[texel * 3 + 2] = traced.color[i * 3 + 2];
+    }
+    return resolveAtlas(atlas, raster, unwrap, scene, settings, lightmapped.length, totalRays, started, onProgress);
+  }
+
   onProgress({ phase: 'tracing', progress: 0, note: 'Tracing on ' + threads + ' threads' });
 
   const jobs = Array.from({ length: threads }, (_, index) => {
@@ -448,7 +476,24 @@ export async function bakeLightmap(
 
   await Promise.all(jobs);
 
-  // --- Resolve -----------------------------------------------------------
+  return resolveAtlas(atlas, raster, unwrap, scene, settings, lightmapped.length, totalRays, started, onProgress);
+}
+
+/**
+ * Denoise, dilate and tally — everything after the rays, shared by both
+ * backends so a GPU bake and a CPU bake differ only in how they were traced.
+ */
+function resolveAtlas(
+  atlas: Float32Array,
+  raster: Awaited<ReturnType<typeof rasterizeToAtlas>>,
+  unwrap: { charts: number },
+  scene: { triangles: number },
+  settings: BakeSettings,
+  meshCount: number,
+  totalRays: number,
+  started: number,
+  onProgress: (progress: BakeProgress) => void,
+): BakeOutput {
   onProgress({ phase: 'resolving', progress: 0.2, note: 'Denoising' });
   const mask = raster.mask.slice();
   if (settings.denoise) denoise(atlas, mask, settings.resolution, settings.denoiseStrength);
@@ -460,7 +505,7 @@ export async function bakeLightmap(
     atlasSize: settings.resolution,
     texels: raster.covered,
     charts: unwrap.charts,
-    meshes: lightmapped.length,
+    meshes: meshCount,
     triangles: scene.triangles,
     rays: totalRays,
     seconds: (performance.now() - started) / 1000,

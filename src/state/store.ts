@@ -95,6 +95,9 @@ const DEFAULT_ENVIRONMENT: EnvironmentDef = {
 };
 
 const DEFAULT_BAKE_SETTINGS: BakeSettings = {
+  // CPU by default: it works everywhere. The panel switches to GPU only when
+  // the probe in `core/gpu.ts` says WebGPU compute is actually available.
+  backend: 'cpu',
   resolution: 1024,
   unwrap: 'generate',
   padding: 3,
@@ -127,6 +130,12 @@ export interface BakeResult {
 interface EngineState {
   rendererBackend: RendererBackend | null; // Backend the WebGPURenderer landed on, once initialized
   setRendererBackend: (backend: RendererBackend) => void;
+
+  /** The GPU as the browser names it, shown in the status bar. Null until probed. */
+  gpuName: string | null;
+  /** Whether the GPU bake backend can be offered at all. */
+  gpuAvailable: boolean;
+  setGpu: (info: { name: string | null; available: boolean }) => void;
 
   transformMode: TransformMode; // Gizmo mode for the transform controls
   setTransformMode: (mode: TransformMode) => void;
@@ -178,6 +187,10 @@ interface EngineState {
 export const useEngine = create<EngineState>((set, get) => ({
   rendererBackend: null,
   setRendererBackend: (rendererBackend) => set({ rendererBackend }),
+
+  gpuName: null,
+  gpuAvailable: false,
+  setGpu: ({ name, available }) => set({ gpuName: name, gpuAvailable: available }),
 
   transformMode: 'translate',
   setTransformMode: (transformMode) => set({ transformMode }),
