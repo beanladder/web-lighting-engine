@@ -9,31 +9,43 @@ import type { LightDef, Vec3 } from '../state/types';
 
 const noRaycast = () => undefined;
 
-/** Vertical gradient used as the visible sky. */
-function useSkyTexture() {
+/** Vertical gradient used as the visible sky. Matches the baker's ambient term. */
+function useSkyTexture(skyColor: string, groundColor: string, mode: string, flatColor: string) {
   return useMemo(() => {
+    if (mode === 'transparent') return null;
     const canvas = document.createElement('canvas');
     canvas.width = 4;
     canvas.height = 256;
     const context = canvas.getContext('2d');
     if (!context) return null;
-    const gradient = context.createLinearGradient(0, 0, 0, 256);
-    gradient.addColorStop(0, '#8fb4ff');
-    gradient.addColorStop(0.47, '#8fb4ff');
-    gradient.addColorStop(0.53, '#2a2622');
-    gradient.addColorStop(1, '#2a2622');
-    context.fillStyle = gradient;
-    context.fillRect(0, 0, 4, 256);
+    if (mode === 'flat') {
+      context.fillStyle = flatColor;
+      context.fillRect(0, 0, 4, 256);
+    } else {
+      const gradient = context.createLinearGradient(0, 0, 0, 256);
+      gradient.addColorStop(0, skyColor);
+      gradient.addColorStop(0.47, skyColor);
+      gradient.addColorStop(0.53, groundColor);
+      gradient.addColorStop(1, groundColor);
+      context.fillStyle = gradient;
+      context.fillRect(0, 0, 4, 256);
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.mapping = THREE.EquirectangularReflectionMapping;
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
-  }, []);
+  }, [skyColor, groundColor, mode, flatColor]);
 }
 
 function Background() {
+  const environment = useEngine((s) => s.environment);
   const scene = useThree((s) => s.scene);
-  const texture = useSkyTexture();
+  const texture = useSkyTexture(
+    environment.skyColor,
+    environment.groundColor,
+    environment.background,
+    environment.backgroundColor,
+  );
 
   useEffect(() => {
     scene.background = texture;
@@ -284,7 +296,15 @@ function TargetHandle({ light, target }: { light: LightDef; target: Vec3 }) {
 }
 
 /** One authored light: the three.js light itself plus its handle. */
-function LightObject({ light, selected }: { light: LightDef; selected: boolean }) {
+function LightObject({
+  light,
+  selected,
+  realtime,
+}: {
+  light: LightDef;
+  selected: boolean;
+  realtime: boolean;
+}) {
   const group = useRef<THREE.Group>(null);
   const sceneRadius = useEngine((s) => s.sceneRadius);
   const showHelpers = useEngine((s) => s.showHelpers);
@@ -310,6 +330,7 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
   const color = useMemo(() => new THREE.Color(light.color), [light.color]);
   const shadowExtent = Math.max(sceneRadius * 1.5, 1);
   const shadowFar = sceneRadius * 6 + 20;
+  const active = realtime && light.enabled && light.preview;
 
   const onSelect = (event: ThreeEvent<MouseEvent>) => {
     event.stopPropagation();
@@ -321,7 +342,7 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
       <group ref={group} name={'light:' + light.id}>
         <primitive object={target} />
 
-      {light.enabled && light.type === 'directional' ? (
+      {active && light.type === 'directional' ? (
         <directionalLight
           color={color}
           intensity={light.intensity}
@@ -340,7 +361,7 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
         />
       ) : null}
 
-      {light.enabled && light.type === 'point' ? (
+      {active && light.type === 'point' ? (
         <pointLight
           color={color}
           intensity={light.intensity}
@@ -356,7 +377,7 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
         />
       ) : null}
 
-      {light.enabled && light.type === 'spot' ? (
+      {active && light.type === 'spot' ? (
         <spotLight
           color={color}
           intensity={light.intensity}
@@ -375,7 +396,7 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
         />
       ) : null}
 
-      {light.enabled && light.type === 'area' ? (
+      {active && light.type === 'area' ? (
         <rectAreaLight
           color={color}
           intensity={light.intensity}
@@ -393,14 +414,34 @@ function LightObject({ light, selected }: { light: LightDef; selected: boolean }
 
 function LightRig() {
   const lights = useEngine((s) => s.lights);
+  const environment = useEngine((s) => s.environment);
+  const viewMode = useEngine((s) => s.viewMode);
   const selection = useEngine((s) => s.selection);
+  const baked = useEngine((s) => s.bakeResult !== null);
+
+  // "Baked" answers the question "what did I actually bake?", so the realtime
+  // rig steps out of the way and only the lightmap contributes.
+  const realtime = viewMode === 'lit';
+
+  // Once a bake exists, a light marked for baking is already in the lightmap.
+  // Letting it also light the scene in realtime would count it twice, so it
+  // drops out — the same mixed/baked split every offline renderer uses.
+  const servedByLightmap = (bake: boolean) => baked && bake;
 
   return (
     <>
+      {realtime && environment.enabled && !servedByLightmap(environment.bake) ? (
+        <hemisphereLight
+          color={environment.skyColor}
+          groundColor={environment.groundColor}
+          intensity={environment.intensity}
+        />
+      ) : null}
       {lights.map((light) => (
         <LightObject
           key={light.id}
           light={light}
+          realtime={realtime && !servedByLightmap(light.bake)}
           selected={selection?.kind === 'light' && selection.id === light.id}
         />
       ))}
@@ -431,6 +472,10 @@ function Gizmo() {
       setAttached(runtime.meshes.get(selection.id) ?? null);
       return;
     }
+    if (selection.kind === 'environment') {
+      setAttached(null);
+      return;
+    }
     const name =
       selection.kind === 'light-target' ? 'light-target:' + selection.id : 'light:' + selection.id;
     setAttached(scene.getObjectByName(name) ?? null);
@@ -438,7 +483,10 @@ function Gizmo() {
 
   if (!attached || !selection) return null;
 
-  const selectedLight = selection.kind !== 'mesh' ? lights.find((l) => l.id === selection.id) : undefined;
+  const selectedLight =
+    selection.kind === 'light' || selection.kind === 'light-target'
+      ? lights.find((l) => l.id === selection.id)
+      : undefined;
   // A target point only ever moves. A light that's aiming at one is also
   // locked to translate — rotating it would have no visible effect, since
   // the target overrides its aim on the very next update. Meshes get the
@@ -465,6 +513,7 @@ function Gizmo() {
           });
           return;
         }
+        if (selection.kind === 'environment') return; // unreachable — attached is null for this kind
         updateLight(selection.id, {
           position: [attached.position.x, attached.position.y, attached.position.z],
           rotation: [attached.rotation.x, attached.rotation.y, attached.rotation.z],

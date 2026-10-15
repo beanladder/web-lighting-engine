@@ -3,13 +3,28 @@ import { WebGPURenderer, RectAreaLightNode } from 'three/webgpu';
 import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
 import { Canvas, useThree } from '@react-three/fiber';
 import SceneContents from './SceneContents';
+import AtlasPreview from './AtlasPreview';
 import { useEngine } from '../state/store';
+import { applyViewMode } from '../core/materials';
 import { buildDemoScene } from '../core/loaders';
 import { importFiles, installModel } from '../core/modelManager';
+import type { ViewMode } from '../state/types';
 
 // Rect-area lights need their linearly-transformed-cosine tables uploaded once
 // before the first render, or they simply don't light anything.
 RectAreaLightNode.setLTC(RectAreaLightTexturesLib.init());
+
+const VIEW_MODES: { value: ViewMode; label: string; title: string }[] = [
+  {
+    value: 'lit',
+    label: 'Lit',
+    title: 'Realtime preview. Lights already in the lightmap stop lighting in realtime.',
+  },
+  { value: 'baked', label: 'Baked', title: 'Lightmap only — realtime lights off' },
+  { value: 'lightmap', label: 'Lightmap', title: 'The lighting alone, without albedo' },
+  { value: 'albedo', label: 'Albedo', title: 'Base colour only' },
+  { value: 'wireframe', label: 'Wire', title: 'Wireframe' },
+];
 
 /** Requests a WebGPU adapter, racing it against a timeout so a hung driver falls back instead of hanging forever. */
 async function webGPUAvailable(timeoutMs = 4000): Promise<boolean> {
@@ -47,6 +62,16 @@ export default function Viewport() {
   const modelName = useEngine((s) => s.modelName);
   const busy = useEngine((s) => s.busy);
   const pickingTargetFor = useEngine((s) => s.pickingTargetFor);
+  const modelVersion = useEngine((s) => s.modelVersion);
+  const viewMode = useEngine((s) => s.viewMode);
+  const bakeResult = useEngine((s) => s.bakeResult);
+  const setView = useEngine((s) => s.setView);
+
+  // Material swapping lives here so every path (bake, clear, view change, new
+  // model) funnels through one place.
+  useEffect(() => {
+    applyViewMode(viewMode, bakeResult?.texture ?? null);
+  }, [viewMode, bakeResult, modelVersion]);
 
   const handleFiles = useCallback((files: File[]) => {
     void importFiles(files).catch(() => undefined);
@@ -101,6 +126,27 @@ export default function Viewport() {
         <BackendReporter />
         <SceneContents />
       </Canvas>
+
+      <div className="viewport-hud">
+        <div className="seg">
+          {VIEW_MODES.map((mode) => (
+            <button
+              key={mode.value}
+              type="button"
+              title={mode.title}
+              className={'btn' + (viewMode === mode.value ? ' btn--active' : '')}
+              onClick={() => setView({ viewMode: mode.value })}
+              disabled={
+                mode.value !== 'lit' && mode.value !== 'wireframe' && mode.value !== 'albedo' && !bakeResult
+              }
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <AtlasPreview />
 
       {status === 'init' ? (
         <div className="loading">

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { runtime, useEngine } from '../state/store';
-import { Check, ColorInput, Field, NumberInput, Section, SliderInput, Vec3Input } from './ui';
+import { Check, ColorInput, Field, NumberInput, Section, Select, SliderInput, Vec3Input } from './ui';
 import type { LightDef, MeshEntry } from '../state/types';
 
 const RAD = 180 / Math.PI;
@@ -12,7 +12,10 @@ export default function Inspector() {
   const meshes = useEngine((s) => s.meshes);
   // Selecting a light's target still shows that light's inspector — you want
   // to see (and edit) its numbers live while dragging the target around.
-  const light = selection && selection.kind !== 'mesh' ? lights.find((l) => l.id === selection.id) : undefined;
+  const light =
+    selection && (selection.kind === 'light' || selection.kind === 'light-target')
+      ? lights.find((l) => l.id === selection.id)
+      : undefined;
   const mesh = selection?.kind === 'mesh' ? meshes.find((m) => m.id === selection.id) : undefined;
 
   return (
@@ -21,9 +24,10 @@ export default function Inspector() {
         <span>Inspector</span>
       </div>
       <div className="panel__scroll">
+        {selection?.kind === 'environment' ? <EnvironmentInspector /> : null}
         {light ? <LightInspector light={light} /> : null}
         {mesh ? <MeshInspector mesh={mesh} /> : null}
-        {!light && !mesh ? (
+        {!selection ? (
           <div className="empty">
             Nothing selected.
             <br />
@@ -32,6 +36,69 @@ export default function Inspector() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function EnvironmentInspector() {
+  const environment = useEngine((s) => s.environment);
+  const update = useEngine((s) => s.updateEnvironment);
+
+  return (
+    <>
+      <Section title="Sky light">
+        <Check label="Enabled" checked={environment.enabled} onChange={(enabled) => update({ enabled })} />
+        <Field label="Sky">
+          <ColorInput value={environment.skyColor} onChange={(skyColor) => update({ skyColor })} />
+        </Field>
+        <Field label="Ground">
+          <ColorInput
+            value={environment.groundColor}
+            onChange={(groundColor) => update({ groundColor })}
+          />
+        </Field>
+        <Field label="Intensity">
+          <SliderInput
+            value={environment.intensity}
+            min={0}
+            max={5}
+            step={0.01}
+            onChange={(intensity) => update({ intensity })}
+          />
+        </Field>
+        <Check
+          label="Include when baking"
+          checked={environment.bake}
+          onChange={(bake) => update({ bake })}
+        />
+        <p className="note">
+          The sky doubles as the ambient term: bakes trace it through the hemisphere, so it also
+          produces the ambient occlusion.
+        </p>
+      </Section>
+
+      <Section title="Background" defaultOpen={false}>
+        <Field label="Mode">
+          <Select
+            value={environment.background}
+            options={[
+              { value: 'gradient' as const, label: 'Sky gradient' },
+              { value: 'flat' as const, label: 'Flat colour' },
+              { value: 'transparent' as const, label: 'None' },
+            ]}
+            onChange={(background) => update({ background })}
+          />
+        </Field>
+        {environment.background === 'flat' ? (
+          <Field label="Colour">
+            <ColorInput
+              value={environment.backgroundColor}
+              onChange={(backgroundColor) => update({ backgroundColor })}
+            />
+          </Field>
+        ) : null}
+        <p className="note">Background is display only — it never contributes light.</p>
+      </Section>
+    </>
   );
 }
 
@@ -57,6 +124,12 @@ function LightInspector({ light }: { light: LightDef }) {
           />
         </Field>
         <Check label="Enabled" checked={light.enabled} onChange={(enabled) => set({ enabled })} />
+        <Check
+          label="Show in preview"
+          checked={light.preview}
+          onChange={(preview) => set({ preview })}
+        />
+        <Check label="Include when baking" checked={light.bake} onChange={(bake) => set({ bake })} />
         <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
           <button className="btn" type="button" onClick={() => duplicate(light.id)}>
             Duplicate
@@ -218,8 +291,33 @@ function LightInspector({ light }: { light: LightDef }) {
 
       {light.type !== 'area' ? (
         <Section title="Shadows">
+          {light.type === 'directional' ? (
+            <Field label="Angular size°">
+              <SliderInput
+                value={light.radius}
+                min={0}
+                max={20}
+                step={0.05}
+                onChange={(radius) => set({ radius })}
+              />
+            </Field>
+          ) : null}
+          {light.type === 'point' || light.type === 'spot' ? (
+            <Field label="Source radius">
+              <SliderInput
+                value={light.radius}
+                min={0}
+                max={2}
+                step={0.01}
+                onChange={(radius) => set({ radius })}
+              />
+            </Field>
+          ) : null}
+          <p className="note">
+            Source size only affects the bake — it is what softens the penumbra as shadows travel.
+          </p>
           <Check
-            label="Cast shadow"
+            label="Realtime shadow map"
             checked={light.castShadow}
             onChange={(castShadow) => set({ castShadow })}
           />
@@ -240,19 +338,29 @@ function LightInspector({ light }: { light: LightDef }) {
 function MeshInspector({ mesh }: { mesh: MeshEntry }) {
   const updateMesh = useEngine((s) => s.updateMesh);
   const object = runtime.meshes.get(mesh.id);
-  const material = object
-    ? ((Array.isArray(object.material) ? object.material[0] : object.material) as
-        | THREE.MeshStandardMaterial
-        | undefined)
+  // Read from the imported material, not whatever the current view mode has
+  // swapped the live mesh onto — once baked/lightmap/albedo/wireframe preview
+  // materials exist, `object.material` is often one of those, not the real one.
+  const source = runtime.originalMaterials.get(mesh.id) ?? object?.material;
+  const material = source
+    ? ((Array.isArray(source) ? source[0] : source) as THREE.MeshStandardMaterial)
     : undefined;
 
-  // Material edits are imperative (straight onto the live three.js material,
-  // same as everything else in `runtime`) — this nudges the store afterward
-  // purely so the Inspector re-reads the values it just wrote and reflects
-  // them, without duplicating material state into zustand.
+  // Material edits are imperative, same as everything else in `runtime` — but
+  // now they have to reach every variant of the material (the remembered
+  // original, the baked clone if a bake exists, and whatever's actually live
+  // on the mesh right now), or an edit could vanish the next time the view
+  // mode changes back to one that reads a variant that never got the edit.
   const editMaterial = (apply: (target: THREE.MeshStandardMaterial) => void) => {
-    if (!material) return;
-    apply(material);
+    const targets = [source, runtime.bakedMaterials.get(mesh.id), object?.material];
+    for (const entry of targets) {
+      if (!entry) continue;
+      for (const item of Array.isArray(entry) ? entry : [entry]) {
+        apply(item as THREE.MeshStandardMaterial);
+        item.needsUpdate = true;
+      }
+    }
+    // Nudge the store so the Inspector re-reads the values it just wrote.
     updateMesh(mesh.id, {});
   };
 
@@ -276,6 +384,24 @@ function MeshInspector({ mesh }: { mesh: MeshEntry }) {
             updateMesh(mesh.id, { visible });
           }}
         />
+      </Section>
+
+      <Section title="Lightmap">
+        <Check
+          label="Receives a lightmap"
+          checked={mesh.lightmapped}
+          onChange={(lightmapped) => updateMesh(mesh.id, { lightmapped })}
+        />
+        <Check
+          label="Blocks light (occluder)"
+          checked={mesh.occluder}
+          onChange={(occluder) => updateMesh(mesh.id, { occluder })}
+        />
+        <p className="note">
+          {mesh.hasUV
+            ? 'This mesh has a UV set, so "reuse existing UVs" is available in the bake settings.'
+            : 'No UV set on this mesh — lightmap UVs will have to be generated.'}
+        </p>
       </Section>
 
       {object ? (

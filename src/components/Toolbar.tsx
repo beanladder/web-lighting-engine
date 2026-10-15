@@ -3,6 +3,7 @@ import { useEngine } from '../state/store';
 import { Menu, MenuItem, MenuSeparator } from './ui';
 import { buildDemoScene } from '../core/loaders';
 import { clearModel, importFiles, installModel } from '../core/modelManager';
+import { isBaking, runBake } from '../core/bake';
 import type { LightType, TransformMode } from '../state/types';
 
 const MODES: { mode: TransformMode; label: string; key: string }[] = [
@@ -31,6 +32,8 @@ export default function Toolbar() {
   const showGizmo = useEngine((s) => s.showGizmo);
   const setView = useEngine((s) => s.setView);
   const addLight = useEngine((s) => s.addLight);
+  const bakeStatus = useEngine((s) => s.bakeStatus);
+  const baking = bakeStatus.phase !== 'idle' && bakeStatus.phase !== 'done' && bakeStatus.phase !== 'error';
 
   return (
     <div className="topbar">
@@ -133,6 +136,15 @@ export default function Toolbar() {
       </div>
 
       <div className="spacer" />
+
+      <button
+        type="button"
+        className="btn btn--primary"
+        disabled={baking || !modelName || isBaking()}
+        onClick={() => void runBake()}
+      >
+        {baking ? 'Baking…' : 'Bake lighting'}
+      </button>
 
       <input
         ref={fileInput}
